@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Secrets / environment (templates like *.example are kept)
+.env
+.env.local
+.env.*.local
+
+# Build output
+.next/
+dist/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Not part of the application
+.workflows/
+ruvector.db
+dole_wb.html
+irr11210.pdf
