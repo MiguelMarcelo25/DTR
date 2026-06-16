@@ -122,10 +122,24 @@ export interface CreateUserPayload {
   employeeId?: string;
 }
 
-/** PUT /users/:id — toggles active state and/or changes role. */
+/** PUT /users/:id — toggles active state, changes role, and/or links an employee. */
 export interface UpdateUserPayload {
   isActive?: boolean;
   role?: RoleName;
+  /** Link the account to an employee record (gives it a time clock). null unlinks. */
+  employeeId?: string | null;
+}
+
+export interface LinkableEmployee {
+  id: string;
+  employeeNo: string;
+  name: string;
+}
+
+/** GET /users/linkable-employees — employees with no linked account yet. */
+export async function listLinkableEmployees(): Promise<LinkableEmployee[]> {
+  const res = await api.get<ApiResponse<LinkableEmployee[]>>('/users/linkable-employees');
+  return res.data.data;
 }
 
 /** GET /users — paginated list. data = items[], meta = pagination. */

@@ -1,5 +1,8 @@
 import type { RoleName } from '@/types';
 
+/** Org name shown in headers like the "Today's Activity" feed. Edit to your company. */
+export const COMPANY_NAME = 'Company Name';
+
 export const ROLE_LABELS: Record<RoleName, string> = {
   SUPER_ADMIN: 'Super Admin',
   ADMIN: 'Admin',
@@ -27,5 +30,6 @@ export function isClient(userRoles: RoleName[]): boolean {
 
 /** Where a user should land after auth, based on role. */
 export function homePathForRoles(userRoles: RoleName[]): string {
-  return isClient(userRoles) ? '/portal' : '/dashboard';
+  // Staff land on the attendance page; external clients go to the support portal.
+  return isClient(userRoles) ? '/portal' : '/dashboard/attendance';
 }

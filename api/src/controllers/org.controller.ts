@@ -79,3 +79,7 @@ export const createUserCtrl = asyncHandler(async (req: Request, res: Response) =
 export const updateUserCtrl = asyncHandler(async (req: Request, res: Response) =>
   ok(res, await org.updateUser(req, req.params.id, req.body)),
 );
+
+export const listLinkableEmployeesCtrl = asyncHandler(async (_req: Request, res: Response) =>
+  ok(res, await org.listLinkableEmployees()),
+);

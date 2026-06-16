@@ -16,14 +16,15 @@ function today(): Date {
   return startOfDay(new Date());
 }
 
-/** First moment of the current calendar month. */
+/** First moment of the current calendar month (UTC-midnight of the business-local
+ *  date, so it matches Prisma `@db.Date` columns on a UTC host). */
 function monthStart(d = new Date()): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1));
 }
 
-/** Last moment of the current calendar month. */
+/** Last moment of the current calendar month (business-local, UTC-safe). */
 function monthEnd(d = new Date()): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999));
 }
 
 /** Decimal → number (Prisma Decimal values are runtime objects with toString). */

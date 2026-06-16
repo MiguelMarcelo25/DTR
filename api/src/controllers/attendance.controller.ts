@@ -121,3 +121,8 @@ export const reportExportController = asyncHandler(async (req: Request, res: Res
   res.setHeader('Content-Disposition', 'attachment; filename="attendance-report.csv"');
   return res.status(200).send(csv);
 });
+
+export const activityController = asyncHandler(async (req: Request, res: Response) => {
+  const limit = req.query.limit ? Number(req.query.limit) : 20;
+  return ok(res, await attendanceService.getActivity(limit));
+});

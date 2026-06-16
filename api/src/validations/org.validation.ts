@@ -51,4 +51,7 @@ export const createUserSchema = z.object({
 export const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
   role: z.enum(['SUPER_ADMIN', 'ADMIN', 'HR', 'EMPLOYEE']).optional(),
+  // Link the account to an employee record (gives it a DTR/time clock).
+  // null unlinks. A uuid links (1:1; reassigns if already linked elsewhere).
+  employeeId: z.string().uuid().nullable().optional(),
 });

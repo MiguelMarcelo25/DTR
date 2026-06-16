@@ -59,6 +59,12 @@ enum TicketEventType {
   CLOSED
 }
 
+enum HolidayType {
+  REGULAR
+  SPECIAL_NON_WORKING
+  SPECIAL_WORKING
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -395,8 +401,9 @@ model Employee {
   leaveRequests   LeaveRequest[]
   leaveBalances   LeaveBalance[]
   appointments    Appointment[]
-  payrolls        Payroll[]
-  assignedTickets SupportTicket[]
+  payrolls         Payroll[]
+  assignedTickets  SupportTicket[]
+  overtimeRequests OvertimeRequest[]
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -1059,4 +1066,40 @@ model SupportTicketEvent {
   createdAt DateTime @default(now())
 
   @@index([ticketId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// DTR COMPLETENESS — overtime & holidays
+// ─────────────────────────────────────────────────────────────
+
+model OvertimeRequest {
+  id           String        @id @default(uuid())
+  employeeId   String
+  date         DateTime      @db.Date
+  hours        Decimal       @db.Decimal(5, 2)
+  reason       String?
+  status       RequestStatus @default(PENDING)
+  reviewedById String?
+  reviewNote   String?
+  reviewedAt   DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeId, status])
+  @@index([date])
+}
+
+model Holiday {
+  id   String      @id @default(uuid())
+  date DateTime    @unique @db.Date
+  name String
+  type HolidayType @default(REGULAR)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
 }

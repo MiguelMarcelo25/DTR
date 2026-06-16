@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { Prisma, AttendanceStatus, RequestStatus, TimelineEventType, NotificationType } from '@prisma/client';
+import { Prisma, AttendanceStatus, RequestStatus, LeaveStatus, TimelineEventType, NotificationType } from '@prisma/client';
 import prisma from '../config/prisma';
 import { MODULES, PRIVILEGED_ROLES } from '../config/constants';
 import type { AuthUser } from '../types';
@@ -20,6 +20,52 @@ interface ScheduleConfig {
   breakMinutes: number;
   gracePeriodMinutes: number;
   workDays: number[];
+}
+
+/** A completed day below this many worked minutes is treated as a half day. */
+const HALF_DAY_MINUTES = 240;
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
+
+/** 'YYYY-MM-DD' key for a (UTC-midnight) business date. */
+function dayKey(d: Date): string {
+  return new Date(d).toISOString().slice(0, 10);
+}
+/** Inclusive list of 'YYYY-MM-DD' keys from start..end. */
+function eachDayKeys(start: Date, end: Date): string[] {
+  const out: string[] = [];
+  const s = startOfDay(start).getTime();
+  const e = startOfDay(end).getTime();
+  for (let t = s; t <= e; t += 86_400_000) out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+/** Weekday (0=Sun..6=Sat) for a 'YYYY-MM-DD' business-date key. */
+function weekdayOf(key: string): number {
+  return new Date(`${key}T00:00:00.000Z`).getUTCDay();
+}
+
+/** Approved-leave dates + holiday dates within a range, for absence classification. */
+async function loadLeaveHolidayContext(employeeId: string, start: Date, end: Date) {
+  const rangeStart = startOfDay(start);
+  const rangeEnd = startOfDay(end);
+  const [leaves, holidays] = await Promise.all([
+    prisma.leaveRequest.findMany({
+      where: {
+        employeeId,
+        status: LeaveStatus.APPROVED,
+        startDate: { lte: rangeEnd },
+        endDate: { gte: rangeStart },
+      },
+      select: { startDate: true, endDate: true },
+    }),
+    prisma.holiday.findMany({
+      where: { date: { gte: rangeStart, lte: rangeEnd } },
+      select: { date: true },
+    }),
+  ]);
+  const leaveDates = new Set<string>();
+  for (const l of leaves) for (const k of eachDayKeys(l.startDate, l.endDate)) leaveDates.add(k);
+  const holidayDates = new Set(holidays.map((h) => dayKey(h.date)));
+  return { leaveDates, holidayDates };
 }
 
 /** Load an employee + its schedule, or throw 404. */
@@ -96,7 +142,15 @@ function computeMetrics(
     workedMinutes = Math.max(0, gross - breakDeduction);
   }
 
-  const status: AttendanceStatus = lateMinutes > 0 ? AttendanceStatus.LATE : AttendanceStatus.PRESENT;
+  // A completed day with fewer than HALF_DAY_MINUTES worked is a half day.
+  let status: AttendanceStatus;
+  if (timeIn && timeOut && workedMinutes > 0 && workedMinutes < HALF_DAY_MINUTES) {
+    status = AttendanceStatus.HALF_DAY;
+  } else if (lateMinutes > 0) {
+    status = AttendanceStatus.LATE;
+  } else {
+    status = AttendanceStatus.PRESENT;
+  }
 
   return { lateMinutes, undertimeMinutes, workedMinutes, status };
 }
@@ -382,23 +436,37 @@ export async function monthlyDtr(
   const start = startOfMonth(opts.year, month0);
   const end = endOfMonth(opts.year, month0);
 
-  const rows = await prisma.attendance.findMany({
-    where: { employeeId, date: { gte: startOfDay(start), lte: startOfDay(end) } },
-    orderBy: { date: 'asc' },
-  });
+  const [rows, ctx, emp] = await Promise.all([
+    prisma.attendance.findMany({
+      where: { employeeId, date: { gte: startOfDay(start), lte: startOfDay(end) } },
+      orderBy: { date: 'asc' },
+    }),
+    loadLeaveHolidayContext(employeeId, start, end),
+    prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { schedule: { select: { workDays: true } } },
+    }),
+  ]);
+  const workDays = emp?.schedule?.workDays?.length ? emp.schedule.workDays : DEFAULT_WORK_DAYS;
 
-  const byDay = new Map<number, (typeof rows)[number]>();
-  for (const row of rows) byDay.set(startOfDay(row.date).getDate(), row);
+  const byKey = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) byKey.set(dayKey(row.date), row);
 
   const daysInMonth = new Date(opts.year, opts.month, 0).getDate();
   const days = [];
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const date = new Date(opts.year, month0, day);
-    days.push({
-      date,
-      day,
-      attendance: byDay.get(day) ?? null,
-    });
+    const date = new Date(Date.UTC(opts.year, month0, day));
+    const key = dayKey(date);
+    const attendance = byKey.get(key) ?? null;
+    // For days with no punch, derive what the day was.
+    let derivedStatus: 'ABSENT' | 'ON_LEAVE' | 'HOLIDAY' | 'REST_DAY' | null = null;
+    if (!attendance) {
+      if (ctx.holidayDates.has(key)) derivedStatus = 'HOLIDAY';
+      else if (ctx.leaveDates.has(key)) derivedStatus = 'ON_LEAVE';
+      else if (workDays.includes(weekdayOf(key))) derivedStatus = 'ABSENT';
+      else derivedStatus = 'REST_DAY';
+    }
+    days.push({ date, day, attendance, derivedStatus });
   }
 
   return { employeeId, year: opts.year, month: opts.month, days };
@@ -423,15 +491,20 @@ export async function summary(
     throw badRequest('Provide a from/to date range or a year and month', 'RANGE_REQUIRED');
   }
 
-  const where: Prisma.AttendanceWhereInput = {
-    employeeId,
-    date: { gte: startOfDay(from), lte: startOfDay(to) },
-  };
+  const emp = await prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { schedule: { select: { workDays: true } } },
+  });
+  const workDays = emp?.schedule?.workDays?.length ? emp.schedule.workDays : DEFAULT_WORK_DAYS;
 
   const rows = await prisma.attendance.findMany({
-    where,
-    select: { status: true, lateMinutes: true, undertimeMinutes: true, workedMinutes: true },
+    where: { employeeId, date: { gte: startOfDay(from), lte: startOfDay(to) } },
+    select: { date: true, status: true, lateMinutes: true, undertimeMinutes: true, workedMinutes: true },
   });
+  const byDate = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) byDate.set(dayKey(r.date), r);
+
+  const { leaveDates, holidayDates } = await loadLeaveHolidayContext(employeeId, from, to);
 
   const summaryResult = {
     present: 0,
@@ -445,30 +518,26 @@ export async function summary(
     totalWorkedMinutes: 0,
   };
 
-  for (const row of rows) {
-    switch (row.status) {
-      case AttendanceStatus.PRESENT:
-        summaryResult.present += 1;
-        break;
-      case AttendanceStatus.LATE:
-        summaryResult.late += 1;
-        break;
-      case AttendanceStatus.ABSENT:
-        summaryResult.absent += 1;
-        break;
-      case AttendanceStatus.ON_LEAVE:
-        summaryResult.onLeave += 1;
-        break;
-      case AttendanceStatus.HALF_DAY:
-        summaryResult.halfDay += 1;
-        break;
-      case AttendanceStatus.HOLIDAY:
-        summaryResult.holiday += 1;
-        break;
+  // Classify every calendar day in the range — records first, then derive
+  // absence/leave/holiday/rest for days with no punch.
+  for (const key of eachDayKeys(from, to)) {
+    const rec = byDate.get(key);
+    if (rec) {
+      if (rec.status === AttendanceStatus.PRESENT) summaryResult.present += 1;
+      else if (rec.status === AttendanceStatus.LATE) summaryResult.late += 1;
+      else if (rec.status === AttendanceStatus.HALF_DAY) summaryResult.halfDay += 1;
+      else if (rec.status === AttendanceStatus.ABSENT) summaryResult.absent += 1;
+      else if (rec.status === AttendanceStatus.ON_LEAVE) summaryResult.onLeave += 1;
+      else if (rec.status === AttendanceStatus.HOLIDAY) summaryResult.holiday += 1;
+      summaryResult.totalLateMinutes += rec.lateMinutes;
+      summaryResult.totalUndertimeMinutes += rec.undertimeMinutes;
+      summaryResult.totalWorkedMinutes += rec.workedMinutes;
+      continue;
     }
-    summaryResult.totalLateMinutes += row.lateMinutes;
-    summaryResult.totalUndertimeMinutes += row.undertimeMinutes;
-    summaryResult.totalWorkedMinutes += row.workedMinutes;
+    if (holidayDates.has(key)) summaryResult.holiday += 1;
+    else if (leaveDates.has(key)) summaryResult.onLeave += 1;
+    else if (workDays.includes(weekdayOf(key))) summaryResult.absent += 1; // scheduled, unworked → absent
+    // otherwise a rest day — not counted
   }
 
   return {
@@ -908,4 +977,66 @@ export async function reportCsv(req: Request, filters: ReportFilters): Promise<s
   }
 
   return lines.join('\n');
+}
+
+export interface ActivityEvent {
+  id: string;
+  type: 'IN' | 'OUT';
+  time: Date;
+  summary: string | null; // particulars (time-out only)
+  date: Date;
+  employee: { id: string; name: string; photoUrl: string | null };
+}
+
+/**
+ * "Today's Activity" — a team-wide feed visible to every employee. Emits an
+ * event for each TIME IN and each TIME OUT today (time-outs carry the day's
+ * particulars). Newest first.
+ *
+ * NOTE: this is intentionally NOT per-user scoped — the whole team sees who
+ * clocked in/out and what they worked on. All other DTR reads remain self-only.
+ */
+export async function getActivity(limit = 20): Promise<ActivityEvent[]> {
+  const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const today = startOfDay(new Date());
+
+  const rows = await prisma.attendance.findMany({
+    where: { date: today, timeIn: { not: null } },
+    orderBy: [{ timeOut: 'desc' }, { timeIn: 'desc' }],
+    take: 200,
+    select: {
+      id: true,
+      date: true,
+      timeIn: true,
+      timeOut: true,
+      workSummary: true,
+      employee: {
+        select: {
+          id: true,
+          employeeNo: true,
+          profile: { select: { firstName: true, lastName: true, photoUrl: true } },
+        },
+      },
+    },
+  });
+
+  const events: ActivityEvent[] = [];
+  for (const r of rows) {
+    const employee = {
+      id: r.employee.id,
+      name: r.employee.profile
+        ? `${r.employee.profile.firstName} ${r.employee.profile.lastName}`
+        : r.employee.employeeNo,
+      photoUrl: r.employee.profile?.photoUrl ?? null,
+    };
+    if (r.timeIn) {
+      events.push({ id: `${r.id}:in`, type: 'IN', time: r.timeIn, summary: null, date: r.date, employee });
+    }
+    if (r.timeOut) {
+      events.push({ id: `${r.id}:out`, type: 'OUT', time: r.timeOut, summary: r.workSummary, date: r.date, employee });
+    }
+  }
+
+  events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  return events.slice(0, take);
 }

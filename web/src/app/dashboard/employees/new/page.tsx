@@ -56,7 +56,7 @@ export default function NewEmployeePage() {
       branchId: SELECT_NONE,
       scheduleId: SELECT_NONE,
       accountRole: 'EMPLOYEE',
-      createAccount: false,
+      createAccount: true, // default ON so a new employee gets a login they can sign in with
     },
   });
 
@@ -107,9 +107,10 @@ export default function NewEmployeePage() {
           currentAddress: v(values.currentAddress),
         },
       };
-      if (createAccount && values.accountEmail && values.accountPassword) {
+      const accountEmail = values.accountEmail || values.email; // fall back to profile email
+      if (createAccount && accountEmail && values.accountPassword) {
         payload.account = {
-          email: values.accountEmail,
+          email: accountEmail,
           password: values.accountPassword,
           role: values.accountRole ?? 'EMPLOYEE',
         };
@@ -128,8 +129,8 @@ export default function NewEmployeePage() {
 
   function onSubmit(values: CreateEmployeeValues) {
     if (createAccount) {
-      if (!values.accountEmail) {
-        toast.error('Account email is required when creating a login.');
+      if (!values.accountEmail && !values.email) {
+        toast.error('Enter an account email (or the employee email) for the login.');
         return;
       }
       if (!values.accountPassword || values.accountPassword.length < 8) {

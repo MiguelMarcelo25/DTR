@@ -14,6 +14,7 @@ export function ProtectedShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false); // desktop hover-expand drawer
 
   useEffect(() => {
     if (loading) return;
@@ -36,10 +37,20 @@ export function ProtectedShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Desktop sidebar — fixed full height, content scrolls independently */}
-      <aside className="hidden w-64 shrink-0 lg:block">
-        <Sidebar />
-      </aside>
+      {/* Desktop hover-expand drawer: a slim icon rail that expands on hover.
+          The spacer reserves the rail's collapsed width so content never shifts;
+          the rail itself is fixed and overlays content when expanded. */}
+      <div className="hidden w-16 shrink-0 lg:block" aria-hidden />
+      <div
+        onMouseEnter={() => setRailOpen(true)}
+        onMouseLeave={() => setRailOpen(false)}
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 hidden overflow-hidden border-r border-sidebar-border transition-[width] duration-200 ease-out lg:block',
+          railOpen ? 'w-64 shadow-pop' : 'w-16',
+        )}
+      >
+        <Sidebar collapsed={!railOpen} />
+      </div>
 
       {/* Mobile drawer */}
       <div className={cn('fixed inset-0 z-50 lg:hidden', mobileOpen ? 'pointer-events-auto' : 'pointer-events-none')}>

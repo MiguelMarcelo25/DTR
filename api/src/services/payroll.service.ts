@@ -5,6 +5,7 @@ import {
   PayrollItemType,
   AttendanceStatus,
   LeaveStatus,
+  RequestStatus,
   EmploymentStatus,
   TimelineEventType,
   NotificationType,
@@ -92,6 +93,20 @@ interface ComputedRun {
   undertimeMinutes: number;
 }
 
+/** 'YYYY-MM-DD' key for a (UTC-midnight) business date. */
+function dayKey(d: Date): string {
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+/** Inclusive list of 'YYYY-MM-DD' keys from start..end. */
+function eachDay(start: Date, end: Date): string[] {
+  const out: string[] = [];
+  const s = startOfDay(start).getTime();
+  const e = startOfDay(end).getTime();
+  for (let t = s; t <= e; t += 86_400_000) out.push(new Date(t).toISOString().slice(0, 10));
+  return out;
+}
+
 async function aggregateAndCompute(
   employee: EmployeeForRun,
   startDate: Date,
@@ -101,17 +116,18 @@ async function aggregateAndCompute(
 
   const rangeStart = startOfDay(startDate);
   const rangeEnd = startOfDay(endDate);
+  const workDays = employee.schedule?.workDays?.length ? employee.schedule.workDays : DEFAULT_WORK_DAYS;
 
-  // Attendance aggregates within [start,end].
+  // Attendance within [start,end] — worked fractions + which dates were present.
   const attendances = await prisma.attendance.findMany({
     where: { employeeId: employee.id, date: { gte: rangeStart, lte: rangeEnd } },
-    select: { status: true, lateMinutes: true, undertimeMinutes: true },
+    select: { date: true, status: true, lateMinutes: true, undertimeMinutes: true },
   });
 
   let lateMinutes = 0;
   let undertimeMinutes = 0;
   let daysWorked = 0;
-  let absentDays = 0;
+  const presentDates = new Set<string>();
   for (const a of attendances) {
     lateMinutes += a.lateMinutes;
     undertimeMinutes += a.undertimeMinutes;
@@ -121,29 +137,58 @@ async function aggregateAndCompute(
       a.status === AttendanceStatus.HALF_DAY
     ) {
       daysWorked += a.status === AttendanceStatus.HALF_DAY ? 0.5 : 1;
-    } else if (a.status === AttendanceStatus.ABSENT) {
-      absentDays += 1;
+      presentDates.add(dayKey(a.date));
     }
   }
 
-  // Unpaid leave days: APPROVED leave whose type is not paid, overlapping the range.
-  const unpaidLeaves = await prisma.leaveRequest.findMany({
+  // Approved leave overlapping the range → covered dates + unpaid total (deduction).
+  const leaves = await prisma.leaveRequest.findMany({
     where: {
       employeeId: employee.id,
       status: LeaveStatus.APPROVED,
-      leaveType: { isPaid: false },
       startDate: { lte: rangeEnd },
       endDate: { gte: rangeStart },
     },
-    select: { days: true },
+    select: { startDate: true, endDate: true, days: true, leaveType: { select: { isPaid: true } } },
   });
-  const unpaidLeaveDays = unpaidLeaves.reduce((sum, l) => sum + num(l.days), 0);
+  const leaveDates = new Set<string>();
+  let unpaidLeaveDays = 0;
+  for (const l of leaves) {
+    if (!l.leaveType.isPaid) unpaidLeaveDays += num(l.days);
+    for (const d of eachDay(l.startDate, l.endDate)) leaveDates.add(d);
+  }
 
-  const standardDaysInPeriod = scheduledDaysInRange(
-    startDate,
-    endDate,
-    employee.schedule?.workDays ?? [],
-  );
+  // Holidays in the range (excluded from absences).
+  const holidays = await prisma.holiday.findMany({
+    where: { date: { gte: rangeStart, lte: rangeEnd } },
+    select: { date: true },
+  });
+  const holidayDates = new Set(holidays.map((h) => dayKey(h.date)));
+
+  // Approved overtime hours in the range → paid at the OT multiplier.
+  const otAgg = await prisma.overtimeRequest.aggregate({
+    where: {
+      employeeId: employee.id,
+      status: RequestStatus.APPROVED,
+      date: { gte: rangeStart, lte: rangeEnd },
+    },
+    _sum: { hours: true },
+  });
+  const overtimeHours = num(otAgg._sum.hours ?? 0);
+
+  // Absence detection: a scheduled workday with no punch, no approved leave, and
+  // not a holiday is an absence. Rest days (not in workDays) are never absences.
+  let absentDays = 0;
+  for (const d of eachDay(rangeStart, rangeEnd)) {
+    const weekday = new Date(`${d}T00:00:00.000Z`).getUTCDay();
+    if (!workDays.includes(weekday)) continue; // rest day
+    if (holidayDates.has(d)) continue; // holiday
+    if (presentDates.has(d)) continue; // worked
+    if (leaveDates.has(d)) continue; // on leave
+    absentDays += 1;
+  }
+
+  const standardDaysInPeriod = scheduledDaysInRange(startDate, endDate, workDays);
 
   const input: PayrollInput = {
     salaryType: employee.profile.salaryType,
@@ -155,7 +200,7 @@ async function aggregateAndCompute(
     unpaidLeaveDays,
     lateMinutes,
     undertimeMinutes,
-    overtimeHours: 0,
+    overtimeHours,
   };
 
   const result = computePayroll(input);

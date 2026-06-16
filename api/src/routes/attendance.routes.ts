@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
-import { ROLES } from '../config/constants';
+import { ROLES, STAFF_ROLES } from '../config/constants';
 import {
   idParamSchema,
   timeOutSchema,
@@ -21,6 +21,7 @@ import {
   timeOutController,
   breakInController,
   breakOutController,
+  activityController,
   listLogsController,
   historyController,
   monthlyDtrController,
@@ -40,6 +41,9 @@ router.post('/time-in', authenticate, timeInController);
 router.post('/time-out', authenticate, validate({ body: timeOutSchema }), timeOutController);
 router.post('/break-in', authenticate, breakInController);
 router.post('/break-out', authenticate, breakOutController);
+
+// ── Team activity feed (recent time-out summaries) ──
+router.get('/activity', authenticate, authorize(...STAFF_ROLES), activityController);
 
 // ── Self reads ──
 router.get(

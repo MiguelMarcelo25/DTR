@@ -71,10 +71,10 @@ export function TimeOutDialog({
       open={open}
       onOpenChange={handleOpenChange}
       size="md"
-      title={phase === 'form' ? 'Time Out — Daily Summary' : undefined}
+      title={phase === 'form' ? 'Particulars' : undefined}
       description={
         phase === 'form'
-          ? 'Before you clock out, tell us what you worked on today.'
+          ? ''
           : undefined
       }
       footer={
@@ -97,19 +97,17 @@ export function TimeOutDialog({
     >
       {phase === 'form' ? (
         <div className="space-y-1.5">
-          <Label htmlFor="work-summary">Today&apos;s accomplishments / particulars</Label>
           <Textarea
             id="work-summary"
             rows={6}
             autoFocus
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
-            placeholder={'e.g. Finished the Q3 payroll run, replied to 5 client tickets, drafted the onboarding checklist…'}
           />
           {error ? (
             <p className="text-xs font-medium text-destructive">{error}</p>
           ) : (
-            <p className="text-xs text-muted-foreground">This is saved to your daily time record.</p>
+            <p className="text-xs text-muted-foreground"></p>
           )}
         </div>
       ) : (

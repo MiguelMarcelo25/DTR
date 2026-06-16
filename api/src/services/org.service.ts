@@ -239,13 +239,50 @@ export async function createUser(
   return sanitizeUserRow(user);
 }
 
+/** Employees with no linked login account — candidates to attach to a user. */
+export async function listLinkableEmployees() {
+  const emps = await prisma.employee.findMany({
+    where: { deletedAt: null, userId: null },
+    select: { id: true, employeeNo: true, profile: { select: { firstName: true, lastName: true } } },
+    orderBy: { employeeNo: 'asc' },
+  });
+  return emps.map((e) => ({
+    id: e.id,
+    employeeNo: e.employeeNo,
+    name: e.profile ? `${e.profile.firstName} ${e.profile.lastName}` : e.employeeNo,
+  }));
+}
+
 export async function updateUser(
   req: Request,
   id: string,
-  data: { isActive?: boolean; role?: RoleName },
+  data: { isActive?: boolean; role?: RoleName; employeeId?: string | null },
 ) {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw notFound('User not found');
+
+  // Link / unlink an employee record (1:1). Gives the account a DTR/time clock.
+  if (data.employeeId !== undefined) {
+    if (data.employeeId === null) {
+      await prisma.employee.updateMany({ where: { userId: id }, data: { userId: null } });
+      await audit(req, { action: 'USER_UNLINKED', module: MODULES.USER, description: `Unlinked employee from ${user.email}` });
+    } else {
+      const emp = await prisma.employee.findUnique({
+        where: { id: data.employeeId },
+        select: { id: true, userId: true, employeeNo: true },
+      });
+      if (!emp) throw notFound('Employee not found');
+      if (emp.userId && emp.userId !== id) {
+        throw conflict('That employee is already linked to another account');
+      }
+      await prisma.$transaction([
+        // enforce 1:1 — detach this user from any other employee first
+        prisma.employee.updateMany({ where: { userId: id, NOT: { id: data.employeeId } }, data: { userId: null } }),
+        prisma.employee.update({ where: { id: data.employeeId }, data: { userId: id } }),
+      ]);
+      await audit(req, { action: 'USER_LINKED', module: MODULES.USER, description: `Linked ${user.email} to employee ${emp.employeeNo}` });
+    }
+  }
 
   if (typeof data.isActive === 'boolean') {
     await prisma.user.update({ where: { id }, data: { isActive: data.isActive } });

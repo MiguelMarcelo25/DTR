@@ -47,6 +47,8 @@ export interface MonthlyDtrDay {
   date: string;
   day: number;
   attendance: AttendanceRecord | null;
+  /** Computed reason a day has no attendance record (server-derived). */
+  derivedStatus?: 'ABSENT' | 'ON_LEAVE' | 'HOLIDAY' | 'REST_DAY' | null;
   [key: string]: unknown;
 }
 
@@ -215,4 +217,24 @@ export async function exportReportCsv(params: ReportParams): Promise<void> {
   link.click();
   link.remove();
   window.URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Team activity feed
+// ─────────────────────────────────────────────────────────────
+
+export interface ActivityItem {
+  id: string;
+  type: 'IN' | 'OUT';
+  time: string;
+  date: string;
+  summary: string | null;
+  employee: { id: string; name: string; photoUrl: string | null };
+}
+
+export async function fetchActivity(limit = 20): Promise<ActivityItem[]> {
+  const res = await api.get<ApiResponse<ActivityItem[]>>('/attendance/activity', {
+    params: { limit },
+  });
+  return res.data.data;
 }

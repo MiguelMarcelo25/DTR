@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2, Lock, Mail, Plus, Search, ShieldAlert } from 'lucide-react';
+import { Loader2, Lock, Mail, Plus, Search, ShieldAlert, Link2 } from 'lucide-react';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDebounce } from '@/hooks/useDebounce';
 import { getApiErrorMessage } from '@/lib/api';
@@ -32,6 +32,7 @@ import {
   createUser,
   listRoles,
   listUsers,
+  listLinkableEmployees,
   updateUser,
   userDisplayName,
   type CreateUserPayload,
@@ -61,6 +62,8 @@ export default function UsersPage() {
   const search = useDebounce(searchInput, 400);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [linkUser, setLinkUser] = useState<User | null>(null);
+  const [selectedEmp, setSelectedEmp] = useState('');
 
   const form = useForm<CreateUserValues>({
     resolver: zodResolver(createUserSchema),
@@ -107,6 +110,26 @@ export default function UsersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'users'] });
       toast.success('User updated.');
+    },
+    onError: (e) => toast.error(getApiErrorMessage(e)),
+  });
+
+  // Employees with no linked account, for the "Link employee" picker.
+  const linkableQuery = useQuery({
+    queryKey: ['admin', 'linkable-employees'],
+    queryFn: listLinkableEmployees,
+    enabled: !!linkUser && canManage,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: ({ id, employeeId }: { id: string; employeeId: string | null }) =>
+      updateUser(id, { employeeId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'users'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'linkable-employees'] });
+      toast.success('Account linked. The user must sign out and back in to use their time clock.');
+      setLinkUser(null);
+      setSelectedEmp('');
     },
     onError: (e) => toast.error(getApiErrorMessage(e)),
   });
@@ -186,10 +209,22 @@ export default function UsersPage() {
       key: 'actions',
       header: '',
       align: 'right',
-      width: '280px',
+      width: '380px',
       render: (r) =>
         canManage ? (
           <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              onClick={() => {
+                setLinkUser(r);
+                setSelectedEmp('');
+              }}
+            >
+              <Link2 className="h-4 w-4" />
+              {r.employee ? 'Re-link' : 'Link'}
+            </Button>
             <Select
               value={r.roles[0] ?? ''}
               onValueChange={(v) => updateMutation.mutate({ id: r.id, role: v as RoleName })}
@@ -319,6 +354,78 @@ export default function UsersPage() {
             placeholder="Link to an employee record"
           />
         </Form>
+      </Modal>
+
+      {/* Link an existing account to an employee → gives it a time clock */}
+      <Modal
+        open={!!linkUser}
+        onOpenChange={(o) => {
+          if (!o) {
+            setLinkUser(null);
+            setSelectedEmp('');
+          }
+        }}
+        title="Link account to employee"
+        description={
+          linkUser ? `Give ${linkUser.email} a time clock by linking it to an employee record.` : undefined
+        }
+        footer={
+          <>
+            {linkUser?.employee && (
+              <Button
+                variant="outline"
+                className="mr-auto cursor-pointer text-destructive"
+                disabled={linkMutation.isPending}
+                onClick={() => linkUser && linkMutation.mutate({ id: linkUser.id, employeeId: null })}
+              >
+                Unlink
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setLinkUser(null)} disabled={linkMutation.isPending} className="cursor-pointer">
+              Cancel
+            </Button>
+            <Button
+              disabled={!selectedEmp || linkMutation.isPending}
+              className="cursor-pointer"
+              onClick={() => linkUser && selectedEmp && linkMutation.mutate({ id: linkUser.id, employeeId: selectedEmp })}
+            >
+              {linkMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Link
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {linkUser?.employee && (
+            <p className="text-sm text-muted-foreground">
+              Currently linked to{' '}
+              <span className="font-medium text-foreground">
+                {linkUser.employee.name ?? linkUser.employee.employeeNo}
+              </span>
+              .
+            </p>
+          )}
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">Employee</span>
+            <Select value={selectedEmp} onValueChange={setSelectedEmp}>
+              <SelectTrigger>
+                <SelectValue placeholder={linkableQuery.isLoading ? 'Loading…' : 'Select an employee'} />
+              </SelectTrigger>
+              <SelectContent>
+                {(linkableQuery.data ?? []).map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.name} · {e.employeeNo}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {linkableQuery.data && linkableQuery.data.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No unlinked employees available. Create one via Employees → Add Employee, or unlink another account first.
+              </p>
+            )}
+          </div>
+        </div>
       </Modal>
     </div>
   );

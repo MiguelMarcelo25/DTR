@@ -58,6 +58,7 @@ roleRouter.get('/', authorize(...readRoles), c.listRolesCtrl);
 export const userRouter = Router();
 userRouter.use(authenticate);
 userRouter.get('/', authorize(...writeRoles), c.listUsersCtrl);
+userRouter.get('/linkable-employees', authorize(...writeRoles), c.listLinkableEmployeesCtrl);
 // Only the Super Admin may create login accounts.
 userRouter.post('/', authorize(ROLES.SUPER_ADMIN), validate({ body: createUserSchema }), c.createUserCtrl);
 userRouter.put('/:id', authorize(...writeRoles), validate({ params: idParam, body: updateUserSchema }), c.updateUserCtrl);

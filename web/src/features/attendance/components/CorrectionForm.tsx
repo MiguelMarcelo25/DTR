@@ -95,8 +95,6 @@ export function CorrectionForm() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <DateTimeField name="requestedTimeIn" label="Time In" />
             <DateTimeField name="requestedTimeOut" label="Time Out" />
-            <DateTimeField name="requestedBreakIn" label="Break In" />
-            <DateTimeField name="requestedBreakOut" label="Break Out" />
           </div>
 
           <TextareaField

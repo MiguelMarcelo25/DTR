@@ -12,6 +12,8 @@ import notificationRoutes from './notification.routes';
 import reportRoutes from './report.routes';
 import auditRoutes from './audit.routes';
 import supportRoutes from './support.routes';
+import holidayRoutes from './holiday.routes';
+import overtimeRoutes from './overtime.routes';
 import {
   departmentRouter,
   positionRouter,
@@ -44,6 +46,8 @@ api.use('/notifications', notificationRoutes);
 api.use('/reports', reportRoutes);
 api.use('/audit-logs', auditRoutes);
 api.use('/support', supportRoutes);
+api.use('/holidays', holidayRoutes);
+api.use('/overtime', overtimeRoutes);
 
 // Org structure + user administration (lookups for selects + admin CRUD)
 api.use('/departments', departmentRouter);

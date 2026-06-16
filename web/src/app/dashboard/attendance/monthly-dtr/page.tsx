@@ -40,10 +40,29 @@ const columns: Column<MonthlyDtrDay>[] = [
     key: 'status',
     header: 'Status',
     align: 'right',
-    render: (r) =>
-      r.attendance ? <StatusBadge status={r.attendance.status} /> : <span className="text-muted-foreground">—</span>,
+    render: (r) => {
+      if (r.attendance) return <StatusBadge status={r.attendance.status} />;
+      return <DerivedStatus value={r.derivedStatus} />;
+    },
   },
 ];
+
+/** Label shown for a day with no punch, based on the server-derived reason. */
+const DERIVED_LABEL: Record<string, string> = {
+  ABSENT: 'Absent',
+  ON_LEAVE: 'On Leave',
+  HOLIDAY: 'Holiday',
+  REST_DAY: 'Rest Day',
+};
+
+function DerivedStatus({ value }: { value?: MonthlyDtrDay['derivedStatus'] }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  // Absent is the only actionable/alarming state → red badge.
+  if (value === 'ABSENT') return <StatusBadge status="ABSENT" />;
+  if (value === 'ON_LEAVE') return <StatusBadge status="ON_LEAVE" />;
+  // Holiday / Rest Day are informational → muted label.
+  return <span className="text-sm text-muted-foreground">{DERIVED_LABEL[value] ?? value}</span>;
+}
 
 export default function MonthlyDtrPage() {
   const [year, setYear] = useState(now.getFullYear());

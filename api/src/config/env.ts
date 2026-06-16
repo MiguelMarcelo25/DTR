@@ -27,6 +27,13 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   REFRESH_COOKIE_NAME: z.string().default('hrms_rt'),
   COOKIE_DOMAIN: z.string().optional(),
+
+  /**
+   * Business timezone for DTR/attendance day-keying + late/undertime math.
+   * MUST match where employees actually work — otherwise a UTC host (e.g. Render)
+   * computes the wrong "day" and the wrong late minutes. Default: Philippines.
+   */
+  APP_TIMEZONE: z.string().default('Asia/Manila'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -38,6 +45,11 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+// Pin the process timezone so all Date math (attendance day boundaries, late /
+// undertime) is computed in the business timezone — not the host's (UTC on Render).
+// Node honours runtime changes to process.env.TZ for subsequent Date operations.
+process.env.TZ = env.APP_TIMEZONE;
 
 export const isProd = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
