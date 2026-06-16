@@ -1,20 +1,23 @@
 # HRMS Design System — MASTER (source of truth)
 
-"Refined Enterprise" — confident, professional, snappy. Built on Tailwind + ShadCN
-tokens. Every page consumes these shared components & tokens; do not hard-code
-colors or one-off inputs.
+"Verdant" — calm, warm, professional. A TEAL brand on warm-stone neutrals, with a
+premium teal-charcoal navigation rail. Built on Tailwind + ShadCN tokens. Every
+page consumes these shared components & tokens; do not hard-code colors or one-off
+inputs.
 
 ## Tokens (use semantic classes, never raw hex)
-- Surfaces: `bg-background` (app), `bg-card` (panels), `bg-muted` (subtle).
-- Brand: `bg-primary text-primary-foreground` (indigo). Accent tint: `bg-accent text-accent-foreground`.
-- Semantics: `text-success`, `text-warning`, `text-destructive` (+ `/foreground`, `/10` tints).
-- Text: `text-foreground` (primary), `text-muted-foreground` (secondary). Never lighter than muted-foreground for body.
-- Borders: `border-border`. Radius: `rounded-lg` (cards/inputs), `rounded-md` (controls), `rounded-full` (pills).
-- Shadows: `shadow-soft` (inputs), `shadow-card` (cards/popovers), `shadow-pop` (modals/menus).
-- Sidebar uses its own dark tokens: `bg-sidebar text-sidebar-foreground` etc. (do not reuse elsewhere).
+- Surfaces: `bg-background` (warm off-white app canvas), `bg-card` (panels), `bg-muted` (subtle).
+- Brand: `bg-primary text-primary-foreground` (TEAL). Accent tint: `bg-accent text-accent-foreground` (teal-wash).
+- Semantics: `text-success` (emerald), `text-warning` (amber), `text-destructive` (rose) (+ `/foreground`, `/10` tints).
+  Note: success is emerald — distinct from the teal brand — so "present/approved" greens never clash with primary.
+- Text: `text-foreground` (warm near-black), `text-muted-foreground` (warm gray). Never lighter than muted-foreground for body.
+- Borders: `border-border` (warm). Radius: `rounded-lg`/`rounded-xl` (cards/inputs), `rounded-md` (controls), `rounded-full` (pills). Base `--radius` is 0.7rem (soft).
+- Shadows: `shadow-soft` (inputs), `shadow-card` (cards/popovers), `shadow-pop` (modals/menus) — tuned warm.
+- Sidebar uses its own dark teal-charcoal tokens: `bg-sidebar text-sidebar-foreground`, active = `bg-sidebar-active` (bright teal) etc. (do not reuse elsewhere).
+- NEVER use indigo/violet or cool slate-* as brand/neutral. If a literal tailwind neutral is unavoidable, use warm `stone-*`.
 
 ## Typography
-- Font: Plus Jakarta Sans (loaded globally). Headings get `font-display tracking-tight` automatically.
+- Fonts (loaded globally): body = **Lexend** (`font-sans`), headings = **Sora** (`font-display tracking-tight`, applied to h1–h5 automatically).
 - Numbers in tables/money/stats: rely on global tabular-nums (tables already set).
 
 ## Motion (snappy, 150–220ms)
@@ -24,6 +27,7 @@ colors or one-off inputs.
 
 ## Components — ALWAYS reuse these
 - **Forms**: `@/components/ui/form` — `Form`, and field components `TextField`, `TextareaField`, `SelectField`, `NumberField`, `DateField`, `CheckboxField`, `SwitchField`. They render label + control + hint + error consistently and bind to react-hook-form via `control`/`name`. NEVER hand-roll `<label>+<input>+error` again.
+- **DatePicker**: `@/components/ui/date-picker` — custom calendar popover (`value`/`onChange` as `'yyyy-MM-dd'`, `placeholder`, `clearable`, `invalid`, `className`). `DateField` uses it under the hood; for standalone date inputs (filters, toolbars) use `<DatePicker>` directly — NEVER a native `<input type="date">`. The popover renders in a portal (fixed-positioned), so it works inside scrollable modals without clipping.
 - **Modal**: `@/components/ui/modal` — `Modal` (props: `open`, `onOpenChange`, `title`, `description`, `footer`, `size` sm|md|lg|xl). Use for ALL dialogs/forms-in-dialog instead of raw Dialog.
 - **Table**: `@/components/shared/DataTable` — `DataTable<T>` with `Column<T>` (`key, header, render?, align?, width?, className?`), plus `toolbar`, `onRowClick`, `meta`, `onPageChange`. Sticky header by default.
 - Primitives: `Button`, `Badge`, `Card*`, `StatusBadge`, `StatCard`, `PageHeader`, `EmptyState`, `ConfirmDialog`, `Skeleton`, `Avatar`, `Tabs`, `DropdownMenu`.

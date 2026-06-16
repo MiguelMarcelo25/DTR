@@ -18,11 +18,11 @@ export function PriorityBadge({ priority }: { priority: TicketPriority }) {
 
 /** Accent color per kanban column. */
 export const STATUS_ACCENT: Record<TicketStatus, string> = {
-  NEW: 'bg-blue-500',
-  OPEN: 'bg-indigo-500',
+  NEW: 'bg-cyan-500',
+  OPEN: 'bg-teal-500',
   IN_PROGRESS: 'bg-amber-500',
   RESOLVED: 'bg-emerald-500',
-  CLOSED: 'bg-slate-400',
+  CLOSED: 'bg-stone-400',
 };
 
 export function titleCase(s: string): string {

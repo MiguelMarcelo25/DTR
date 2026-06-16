@@ -14,6 +14,7 @@ import { getApiErrorMessage } from '@/lib/api';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Modal } from '@/components/ui/modal';
@@ -232,11 +233,12 @@ function UploadDocumentDialog({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="doc-exp">Expiration date (optional)</Label>
-            <Input
+            <DatePicker
               id="doc-exp"
-              type="date"
               value={expirationDate}
-              onChange={(e) => setExpirationDate(e.target.value)}
+              onChange={setExpirationDate}
+              placeholder="Pick a date"
+              className="w-full"
             />
           </div>
           <div className="space-y-1.5">

@@ -90,7 +90,7 @@ export function TicketDetailModal({ ticketId, onClose }: { ticketId: string | nu
         <div className="grid gap-6 lg:grid-cols-[1fr_240px]">
           {/* Main */}
           <div className="space-y-5">
-            <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <div className="rounded-xl border bg-muted/30 p-4 text-sm shadow-soft">
               <p className="whitespace-pre-wrap">{ticket.description}</p>
               <p className="mt-3 text-xs text-muted-foreground">
                 From {ticket.client.clientProfile?.fullName ?? ticket.client.email}
@@ -104,7 +104,7 @@ export function TicketDetailModal({ ticketId, onClose }: { ticketId: string | nu
               <h4 className="text-sm font-semibold">Conversation</h4>
               {ticket.comments.length === 0 && <p className="text-sm text-muted-foreground">No replies yet.</p>}
               {ticket.comments.map((c) => (
-                <div key={c.id} className={cn('rounded-lg border p-3 text-sm', c.isInternal && 'border-amber-300 bg-amber-50 dark:bg-amber-950/20')}>
+                <div key={c.id} className={cn('rounded-xl border p-3 text-sm shadow-soft', c.isInternal && 'border-amber-300 bg-amber-50 dark:bg-amber-950/20')}>
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="flex items-center gap-2 font-medium">
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] text-primary">
@@ -120,7 +120,7 @@ export function TicketDetailModal({ ticketId, onClose }: { ticketId: string | nu
               ))}
 
               {/* Reply box */}
-              <div className="space-y-2 rounded-lg border p-3">
+              <div className="space-y-2 rounded-xl border p-3 shadow-soft">
                 <Textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}

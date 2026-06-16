@@ -3,81 +3,80 @@
 @tailwind utilities;
 
 /*
-  HRMS design tokens — "Refined Enterprise" system.
-  Brand: indigo accent · cool-slate neutrals · emerald/amber/rose semantics.
-  The sidebar uses its OWN dark token set in both light & dark themes for a
-  premium navigation rail.
+  HRMS design tokens — "Verdant" system.
+  Brand: teal · warm-stone neutrals · emerald/amber/rose semantics.
+  Premium teal-charcoal navigation rail. Fonts: Sora (display) + Lexend (body).
 */
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 40 33% 98%;
+    --foreground: 20 14% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 20 14% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 20 14% 12%;
 
-    --primary: 243 75% 59%;
+    --primary: 173 80% 28%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 47% 18%;
+    --secondary: 40 18% 93%;
+    --secondary-foreground: 20 14% 22%;
 
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
+    --muted: 40 18% 93%;
+    --muted-foreground: 25 8% 44%;
 
-    --accent: 243 75% 96%;
-    --accent-foreground: 243 60% 40%;
+    --accent: 173 55% 92%;
+    --accent-foreground: 174 80% 22%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 58% 38%;
+    --success: 152 55% 37%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 35 92% 48%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 33 92% 47%;
+    --warning-foreground: 20 14% 10%;
 
-    --border: 220 13% 91%;
-    --input: 220 13% 89%;
-    --ring: 243 75% 59%;
+    --border: 30 14% 88%;
+    --input: 30 14% 85%;
+    --ring: 173 80% 28%;
 
-    --radius: 0.75rem;
+    --radius: 0.7rem;
 
-    /* Premium dark navigation rail */
-    --sidebar: 222 47% 11%;
-    --sidebar-foreground: 215 20% 75%;
-    --sidebar-muted: 217 19% 55%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-active: 243 75% 59%;
-    --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-border: 217 33% 18%;
+    /* Premium teal-charcoal navigation rail */
+    --sidebar: 190 32% 10%;
+    --sidebar-foreground: 175 14% 74%;
+    --sidebar-muted: 185 12% 54%;
+    --sidebar-accent: 190 26% 16%;
+    --sidebar-active: 173 78% 40%;
+    --sidebar-active-foreground: 190 40% 8%;
+    --sidebar-border: 190 24% 18%;
   }
 
   .dark {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 96%;
+    --background: 20 14% 8%;
+    --foreground: 40 20% 94%;
 
-    --card: 222 44% 11%;
-    --card-foreground: 210 40% 96%;
+    --card: 20 13% 11%;
+    --card-foreground: 40 20% 94%;
 
-    --popover: 222 44% 11%;
-    --popover-foreground: 210 40% 96%;
+    --popover: 20 13% 11%;
+    --popover-foreground: 40 20% 94%;
 
-    --primary: 243 75% 66%;
-    --primary-foreground: 222 47% 11%;
+    --primary: 172 70% 45%;
+    --primary-foreground: 190 40% 7%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 20 10% 18%;
+    --secondary-foreground: 40 20% 94%;
 
-    --muted: 217 33% 16%;
-    --muted-foreground: 215 20% 62%;
+    --muted: 20 10% 17%;
+    --muted-foreground: 30 8% 62%;
 
-    --accent: 217 33% 20%;
-    --accent-foreground: 210 40% 96%;
+    --accent: 20 10% 20%;
+    --accent-foreground: 40 20% 94%;
 
     --destructive: 0 63% 50%;
     --destructive-foreground: 0 0% 100%;
@@ -86,19 +85,19 @@
     --success-foreground: 0 0% 100%;
 
     --warning: 35 92% 55%;
-    --warning-foreground: 222 47% 11%;
+    --warning-foreground: 20 14% 10%;
 
-    --border: 217 33% 20%;
-    --input: 217 33% 24%;
-    --ring: 243 75% 66%;
+    --border: 20 9% 22%;
+    --input: 20 9% 25%;
+    --ring: 172 70% 45%;
 
-    --sidebar: 222 47% 6%;
-    --sidebar-foreground: 215 20% 72%;
-    --sidebar-muted: 217 15% 50%;
-    --sidebar-accent: 217 33% 14%;
-    --sidebar-active: 243 75% 62%;
-    --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-border: 217 33% 14%;
+    --sidebar: 190 36% 7%;
+    --sidebar-foreground: 175 12% 70%;
+    --sidebar-muted: 185 10% 50%;
+    --sidebar-accent: 190 28% 13%;
+    --sidebar-active: 172 70% 44%;
+    --sidebar-active-foreground: 190 40% 7%;
+    --sidebar-border: 190 26% 13%;
   }
 }
 
@@ -112,9 +111,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: 'cv11', 'ss01';
+    font-feature-settings: 'cv02', 'cv03', 'ss01';
   }
-  /* Tabular figures everywhere numbers matter (tables, money, stats) */
   table,
   .tabular-nums {
     font-variant-numeric: tabular-nums;
@@ -125,49 +123,29 @@
 }
 
 @layer utilities {
-  /* Thin, unobtrusive scrollbar — no chunky slider in the sidebar/panels */
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
   }
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground) / 0.25);
     border-radius: 9999px;
   }
-  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted-foreground) / 0.4);
-  }
-  /* Fully hidden scrollbar (sidebar) — scroll still works */
-  .scrollbar-none {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb { background-color: hsl(var(--muted-foreground) / 0.4); }
+  .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
   .glass {
     background-color: hsl(var(--background) / 0.72);
     backdrop-filter: saturate(180%) blur(12px);
   }
-  /* Hint the compositor for elements that animate on mount */
   .animate-fade-up,
-  .animate-scale-in {
-    will-change: transform, opacity;
-  }
+  .animate-scale-in { will-change: transform, opacity; }
 }
 
-/* Respect the OS "reduce motion" setting — no jarring animations */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

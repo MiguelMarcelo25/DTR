@@ -73,9 +73,9 @@ const config: Config = {
         sm: 'calc(var(--radius) - 4px)',
       },
       boxShadow: {
-        soft: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
-        card: '0 1px 3px 0 rgb(15 23 42 / 0.06), 0 8px 24px -12px rgb(15 23 42 / 0.12)',
-        pop: '0 12px 32px -8px rgb(15 23 42 / 0.18)',
+        soft: '0 1px 2px 0 rgb(28 25 23 / 0.04), 0 1px 3px 0 rgb(28 25 23 / 0.07)',
+        card: '0 1px 3px 0 rgb(28 25 23 / 0.06), 0 10px 26px -14px rgb(28 25 23 / 0.16)',
+        pop: '0 14px 36px -10px rgb(28 25 23 / 0.22)',
       },
       keyframes: {
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },

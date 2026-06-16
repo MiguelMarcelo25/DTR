@@ -7,7 +7,7 @@ import { formatTime, formatMinutes } from '@/features/attendance/utils';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { StatusBadge } from '@/components/shared/StatusBadge';
-import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/utils';
@@ -48,27 +48,27 @@ export default function AttendanceHistoryPage() {
     <div className="flex flex-col flex-wrap items-start gap-3 sm:flex-row sm:items-end">
       <div className="space-y-1.5">
         <Label htmlFor="from">From</Label>
-        <Input
+        <DatePicker
           id="from"
-          type="date"
           value={from}
-          onChange={(e) => {
-            setFrom(e.target.value);
+          onChange={(v) => {
+            setFrom(v);
             setPage(1);
           }}
+          placeholder="Pick a date"
           className="w-full sm:w-44"
         />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="to">To</Label>
-        <Input
+        <DatePicker
           id="to"
-          type="date"
           value={to}
-          onChange={(e) => {
-            setTo(e.target.value);
+          onChange={(v) => {
+            setTo(v);
             setPage(1);
           }}
+          placeholder="Pick a date"
           className="w-full sm:w-44"
         />
       </div>

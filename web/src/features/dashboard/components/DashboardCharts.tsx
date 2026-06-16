@@ -33,9 +33,9 @@ export default function DashboardCharts({ charts }: { charts: AdminDashboard['ch
               <XAxis dataKey="date" fontSize={11} />
               <YAxis fontSize={11} allowDecimals={false} />
               <Tooltip />
-              <Line type="monotone" dataKey="present" stroke="#10b981" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="late" stroke="#f59e0b" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="absent" stroke="#ef4444" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="present" stroke="hsl(var(--success))" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="late" stroke="hsl(var(--warning))" strokeWidth={2.5} dot={false} />
+              <Line type="monotone" dataKey="absent" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>

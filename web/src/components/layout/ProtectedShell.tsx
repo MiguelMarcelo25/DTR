@@ -56,7 +56,7 @@ export function ProtectedShell({ children }: { children: ReactNode }) {
       <div className={cn('fixed inset-0 z-50 lg:hidden', mobileOpen ? 'pointer-events-auto' : 'pointer-events-none')}>
         <div
           className={cn(
-            'absolute inset-0 bg-slate-950/60 transition-opacity duration-200',
+            'absolute inset-0 bg-black/60 transition-opacity duration-200',
             mobileOpen ? 'opacity-100' : 'opacity-0',
           )}
           onClick={() => setMobileOpen(false)}

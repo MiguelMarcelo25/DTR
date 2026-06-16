@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
 
 // ─────────────────────────────────────────────────────────────
 // Form wrapper — sets up FormProvider so fields auto-bind.
@@ -206,23 +207,25 @@ export function NumberField({
 
 interface DateFieldProps extends BaseFieldProps {
   inputClassName?: string;
+  placeholder?: string;
+  clearable?: boolean;
 }
 
-export function DateField({ name, control, label, description, required, disabled, className, inputClassName }: DateFieldProps) {
+export function DateField({ name, control, label, description, required, disabled, className, inputClassName, placeholder, clearable }: DateFieldProps) {
   const { field, fieldState } = useField(name, control);
-  // Normalise ISO datetime → yyyy-MM-dd for the date input
+  // Normalise ISO datetime → yyyy-MM-dd for the custom calendar picker.
   const value = typeof field.value === 'string' ? field.value.slice(0, 10) : field.value ?? '';
   return (
     <FieldShell id={name} label={label} required={required} description={description} error={fieldState.error?.message} className={className}>
-      <Input
+      <DatePicker
         id={name}
-        type="date"
-        disabled={disabled}
-        className={cn(fieldState.error && 'border-destructive focus-visible:ring-destructive', inputClassName)}
         value={value}
-        onChange={(e) => field.onChange(e.target.value)}
-        onBlur={field.onBlur}
-        ref={field.ref}
+        onChange={(v) => field.onChange(v)}
+        disabled={disabled}
+        invalid={!!fieldState.error}
+        placeholder={placeholder}
+        clearable={clearable}
+        className={inputClassName}
       />
     </FieldShell>
   );

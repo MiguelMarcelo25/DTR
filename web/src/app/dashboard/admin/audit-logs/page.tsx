@@ -11,6 +11,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -219,27 +220,29 @@ export default function AuditLogsPage() {
 
           <div className="space-y-1.5">
             <Label htmlFor="audit-from">From</Label>
-            <Input
+            <DatePicker
               id="audit-from"
-              type="date"
               value={from}
-              onChange={(e) => {
-                setFrom(e.target.value);
+              onChange={(v) => {
+                setFrom(v);
                 setPage(1);
               }}
+              placeholder="Pick a date"
+              className="w-full"
             />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="audit-to">To</Label>
-            <Input
+            <DatePicker
               id="audit-to"
-              type="date"
               value={to}
-              onChange={(e) => {
-                setTo(e.target.value);
+              onChange={(v) => {
+                setTo(v);
                 setPage(1);
               }}
+              placeholder="Pick a date"
+              className="w-full"
             />
           </div>
 

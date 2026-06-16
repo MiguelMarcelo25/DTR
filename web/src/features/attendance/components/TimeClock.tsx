@@ -117,7 +117,7 @@ export function TimeClock({ big = false }: { big?: boolean }) {
     <>
       <Card className="overflow-hidden border-0 shadow-card animate-fade-up">
         {/* Greeting + live clock */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-primary to-indigo-600 px-6 py-7 text-white">
+        <div className="relative overflow-hidden bg-gradient-to-br from-primary to-teal-600 px-6 py-7 text-white">
           <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
           <div className="pointer-events-none absolute -bottom-12 -left-6 h-32 w-32 rounded-full bg-white/10 blur-2xl" />
           <div className="relative">
