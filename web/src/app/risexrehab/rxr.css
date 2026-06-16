@@ -1,0 +1,97 @@
+/*
+  RISE X REHAB — scoped brand styling. Everything lives under `.rxr` so it never
+  leaks into the HRMS app it shares a Next.js project with.
+*/
+
+.rxr {
+  --rxr-bg: #0b0c0e;
+  --rxr-panel: #111315;
+  --rxr-ink: #f7f6f3;
+  --rxr-navy: #1b2a4a;
+  --rxr-teal: #2ee6d6;
+  --rxr-volt: #c6ff00;
+  --rxr-muted: #9aa0a6;
+
+  background: var(--rxr-bg);
+  color: var(--rxr-ink);
+  font-family: var(--font-rxr-body), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  scroll-behavior: smooth;
+}
+
+/* Anchor offset so sticky-nav doesn't cover section headings */
+.rxr :where(section[id]) {
+  scroll-margin-top: 88px;
+}
+
+.rxr-display {
+  font-family: var(--font-rxr-display), 'Arial Narrow', Impact, sans-serif;
+  font-weight: 400;
+  line-height: 0.92;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+}
+
+.rxr-mono {
+  font-family: var(--font-rxr-mono), ui-monospace, monospace;
+}
+
+.rxr-eyebrow {
+  font-family: var(--font-rxr-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 0.72rem;
+}
+
+/* Volt/teal gradient text for accent words */
+.rxr-grad {
+  background: linear-gradient(100deg, var(--rxr-volt), var(--rxr-teal));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Subtle film grain / noise overlay for atmosphere */
+.rxr-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Marquee tagline strip */
+@keyframes rxr-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.rxr-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: rxr-marquee 30s linear infinite;
+}
+
+/* Scroll-reveal (toggled by the Reveal client component) */
+.rxr-reveal {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.rxr-reveal.is-in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Thin branded scrollbar within the page */
+.rxr ::selection {
+  background: var(--rxr-volt);
+  color: #000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rxr { scroll-behavior: auto; }
+  .rxr-marquee { animation: none; }
+  .rxr-reveal { opacity: 1; transform: none; transition: none; }
+}
