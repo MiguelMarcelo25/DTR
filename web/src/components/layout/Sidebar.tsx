@@ -16,6 +16,7 @@ import {
   Settings,
   Building2,
   Briefcase,
+  ClipboardCheck,
   ClipboardList,
   ScrollText,
   ShieldCheck,
@@ -24,7 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
-import { ADMINS, PRIVILEGED } from '@/lib/constants';
+import { ADMINS, PRIVILEGED, STAFF } from '@/lib/constants';
 import type { RoleName } from '@/types';
 
 interface NavChild {
@@ -72,6 +73,7 @@ const NAV: NavGroup[] = [
       },
       { label: 'Leave', href: '/dashboard/leave', icon: Plane },
       { label: 'Appointments', href: '/dashboard/appointments', icon: CalendarDays },
+      { label: 'Approvals', href: '/dashboard/approvals', icon: ClipboardCheck, roles: STAFF },
       { label: 'Payroll', href: '/dashboard/payroll', icon: Wallet },
       { label: 'Support', href: '/dashboard/support', icon: LifeBuoy },
       { label: 'Reports', href: '/dashboard/reports', icon: FileBarChart, roles: PRIVILEGED },

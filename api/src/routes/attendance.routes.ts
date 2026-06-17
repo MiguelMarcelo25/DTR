@@ -10,6 +10,9 @@ import {
   attendanceHistoryQuerySchema,
   monthlyDtrQuerySchema,
   summaryQuerySchema,
+  dtrReadinessQuerySchema,
+  submitDtrPeriodSchema,
+  lockDtrPeriodSchema,
   createCorrectionSchema,
   correctionListQuerySchema,
   approveCorrectionSchema,
@@ -26,6 +29,10 @@ import {
   historyController,
   monthlyDtrController,
   summaryController,
+  dtrReadinessController,
+  submitDtrPeriodController,
+  lockDtrPeriodController,
+  reopenDtrPeriodController,
   createCorrectionController,
   listCorrectionsController,
   approveCorrectionController,
@@ -59,6 +66,34 @@ router.get(
   monthlyDtrController,
 );
 router.get('/summary', authenticate, validate({ query: summaryQuerySchema }), summaryController);
+
+// ── DTR periods ──
+router.get(
+  '/periods/readiness',
+  authenticate,
+  validate({ query: dtrReadinessQuerySchema }),
+  dtrReadinessController,
+);
+router.post(
+  '/periods/submit',
+  authenticate,
+  validate({ body: submitDtrPeriodSchema }),
+  submitDtrPeriodController,
+);
+router.post(
+  '/periods/:id/lock',
+  authenticate,
+  authorize(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR),
+  validate({ params: idParamSchema, body: lockDtrPeriodSchema }),
+  lockDtrPeriodController,
+);
+router.post(
+  '/periods/:id/reopen',
+  authenticate,
+  authorize(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR),
+  validate({ params: idParamSchema }),
+  reopenDtrPeriodController,
+);
 
 // ── Corrections ──
 router.post(

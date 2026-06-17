@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMonthlyDtr, type MonthlyDtrDay } from '@/features/attendance/api';
+import { PeriodReadinessPanel } from '@/features/attendance/components/PeriodReadinessPanel';
 import { formatTime, formatMinutes, weekday, MONTHS } from '@/features/attendance/utils';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { DataTable, type Column } from '@/components/shared/DataTable';
@@ -137,6 +138,16 @@ export default function MonthlyDtrPage() {
         <StatCard label="Total Worked" value={formatMinutes(totals.worked)} icon={Timer} />
         <StatCard label="Total Late" value={formatMinutes(totals.lateMins)} icon={Clock} />
       </div>
+
+      <PeriodReadinessPanel
+        year={year}
+        month={month}
+        title="DTR Period Status"
+        description="Certification and period readiness for this monthly DTR."
+        dtrDays={rows.length}
+        dtrLoading={isLoading}
+        className="animate-fade-up"
+      />
 
       <DataTable
         columns={columns}

@@ -9,6 +9,7 @@ import {
   EmploymentStatus,
   TimelineEventType,
   NotificationType,
+  DtrPeriodStatus,
 } from '@prisma/client';
 import prisma from '../config/prisma';
 import { MODULES } from '../config/constants';
@@ -20,6 +21,7 @@ import { buildMeta, buildOrderBy } from '../utils/pagination';
 import { ensureSelfOrPrivileged, isPrivileged } from '../utils/access';
 import {
   computePayroll,
+  DEFAULT_PAYROLL_CONFIG,
   type PayrollInput,
   type PayrollLine,
   type SalaryType,
@@ -29,6 +31,12 @@ import { uploadBuffer } from '../utils/storage';
 import { inclusiveDays, startOfDay } from '../utils/dateTime';
 
 const COMPANY_NAME = 'HR Management System';
+const CALCULATION_VERSION = 'dtr-payroll-v1';
+const PAYROLL_READY_DTR_STATUSES = new Set<DtrPeriodStatus>([
+  DtrPeriodStatus.LOCKED,
+  DtrPeriodStatus.PAYROLL_READY,
+  DtrPeriodStatus.PAYROLL_HANDOFF,
+]);
 
 /** Default work days when an employee has no schedule: Mon–Fri. */
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
@@ -64,6 +72,101 @@ function fullName(emp: EmployeeFullName): string {
   if (!emp.profile) return 'Unknown';
   const { firstName, middleName, lastName } = emp.profile;
   return [firstName, middleName, lastName].filter(Boolean).join(' ');
+}
+
+interface PayrollDtrPeriod {
+  id: string;
+  employeeId: string;
+  year: number;
+  month: number;
+  status: DtrPeriodStatus;
+  lockedAt?: Date | null;
+  hrApprovedAt?: Date | null;
+  supervisorApprovedAt?: Date | null;
+  payrollHandoffAt?: Date | null;
+  version?: number;
+}
+
+function payrollMonthsInRange(startDate: Date, endDate: Date): Array<{ year: number; month: number }> {
+  const months: Array<{ year: number; month: number }> = [];
+  const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), 1));
+  while (cursor.getTime() <= end.getTime()) {
+    months.push({ year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1 });
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
+}
+
+function dtrKey(employeeId: string, year: number, month: number): string {
+  return `${employeeId}:${year}:${month}`;
+}
+
+async function assertDtrReadyForPayroll(
+  employeeIds: string[],
+  startDate: Date,
+  endDate: Date,
+): Promise<{ months: Array<{ year: number; month: number }>; periodsByKey: Map<string, PayrollDtrPeriod> }> {
+  const months = payrollMonthsInRange(startDate, endDate);
+  const periodsByKey = new Map<string, PayrollDtrPeriod>();
+  if (!employeeIds.length) return { months, periodsByKey };
+
+  const periods = await prisma.dtrPeriod.findMany({
+    where: {
+      employeeId: { in: employeeIds },
+      OR: months.map((month) => ({ year: month.year, month: month.month })),
+    },
+    select: {
+      id: true,
+      employeeId: true,
+      year: true,
+      month: true,
+      status: true,
+      lockedAt: true,
+      hrApprovedAt: true,
+      supervisorApprovedAt: true,
+      payrollHandoffAt: true,
+      version: true,
+    },
+  });
+
+  for (const period of periods) {
+    periodsByKey.set(dtrKey(period.employeeId, period.year, period.month), period);
+  }
+
+  const issues: Array<{ employeeId: string; year: number; month: number; status: string }> = [];
+  for (const employeeId of employeeIds) {
+    for (const month of months) {
+      const period = periodsByKey.get(dtrKey(employeeId, month.year, month.month));
+      if (!period) {
+        issues.push({ employeeId, year: month.year, month: month.month, status: 'MISSING' });
+        continue;
+      }
+      if (!PAYROLL_READY_DTR_STATUSES.has(period.status)) {
+        issues.push({ employeeId, year: month.year, month: month.month, status: period.status });
+      }
+    }
+  }
+
+  if (issues.length) {
+    throw badRequest(
+      'Payroll cannot be processed until all DTR periods are locked or approved',
+      'DTR_NOT_READY',
+      { issues },
+    );
+  }
+
+  return { months, periodsByKey };
+}
+
+function dtrPeriodsForEmployee(
+  periodsByKey: Map<string, PayrollDtrPeriod>,
+  employeeId: string,
+  months: Array<{ year: number; month: number }>,
+): PayrollDtrPeriod[] {
+  return months
+    .map((month) => periodsByKey.get(dtrKey(employeeId, month.year, month.month)))
+    .filter((period): period is PayrollDtrPeriod => Boolean(period));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -217,7 +320,7 @@ function itemsCreateData(items: PayrollLine[]) {
 }
 
 /** Build the Payroll row data (excluding period/employee linkage) from a run. */
-function payrollData(run: ComputedRun, status: PayrollStatus) {
+function payrollData(run: ComputedRun, status: PayrollStatus, dtrPeriods: PayrollDtrPeriod[] = []) {
   return {
     status,
     daysWorked: new Prisma.Decimal(run.daysWorked),
@@ -229,6 +332,27 @@ function payrollData(run: ComputedRun, status: PayrollStatus) {
     grossPay: new Prisma.Decimal(run.result.grossPay),
     totalDeductions: new Prisma.Decimal(run.result.totalDeductions),
     netPay: new Prisma.Decimal(run.result.netPay),
+    inputSnapshot: run.input as unknown as Prisma.InputJsonValue,
+    attendanceSnapshot: {
+      daysWorked: run.daysWorked,
+      absentDays: run.absentDays,
+      lateMinutes: run.lateMinutes,
+      undertimeMinutes: run.undertimeMinutes,
+      overtimeHours: run.input.overtimeHours,
+      dtrPeriods: dtrPeriods.map((period) => ({
+        id: period.id,
+        year: period.year,
+        month: period.month,
+        status: period.status,
+        version: period.version ?? null,
+        lockedAt: period.lockedAt?.toISOString() ?? null,
+        hrApprovedAt: period.hrApprovedAt?.toISOString() ?? null,
+        supervisorApprovedAt: period.supervisorApprovedAt?.toISOString() ?? null,
+        payrollHandoffAt: period.payrollHandoffAt?.toISOString() ?? null,
+      })),
+    } as Prisma.InputJsonValue,
+    payrollConfigSnapshot: DEFAULT_PAYROLL_CONFIG as unknown as Prisma.InputJsonValue,
+    calculationVersion: CALCULATION_VERSION,
   };
 }
 
@@ -250,17 +374,6 @@ export async function processPayroll(req: Request, user: AuthUser, data: Process
   if (existing) {
     throw conflict('A payroll period already exists for this date range');
   }
-
-  const period = await prisma.payrollPeriod.create({
-    data: {
-      name: data.name,
-      startDate: data.startDate,
-      endDate: data.endDate,
-      payDate: data.payDate ?? null,
-      status: PayrollStatus.PROCESSING,
-      createdById: user.id,
-    },
-  });
 
   const employees = await prisma.employee.findMany({
     where: {
@@ -285,17 +398,36 @@ export async function processPayroll(req: Request, user: AuthUser, data: Process
     },
   });
 
+  const { months, periodsByKey } = await assertDtrReadyForPayroll(
+    employees.map((employee) => employee.id),
+    data.startDate,
+    data.endDate,
+  );
+
+  const period = await prisma.payrollPeriod.create({
+    data: {
+      name: data.name,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      payDate: data.payDate ?? null,
+      status: PayrollStatus.PROCESSING,
+      createdById: user.id,
+    },
+  });
+
   const short = periodShort(data.startDate, data.endDate);
   let processed = 0;
 
   for (const employee of employees) {
     const run = await aggregateAndCompute(employee, data.startDate, data.endDate);
+    const employeeDtrPeriods = dtrPeriodsForEmployee(periodsByKey, employee.id, months);
 
     await prisma.payroll.create({
       data: {
         periodId: period.id,
         employeeId: employee.id,
-        ...payrollData(run, PayrollStatus.COMPLETED),
+        dtrPeriodId: employeeDtrPeriods.length === 1 ? employeeDtrPeriods[0].id : null,
+        ...payrollData(run, PayrollStatus.COMPLETED, employeeDtrPeriods),
         items: { create: itemsCreateData(run.result.items) },
         payslip: {
           create: {

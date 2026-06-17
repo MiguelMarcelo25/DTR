@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { api } from '@/lib/api';
 import type { ApiResponse, Paginated, PaginationMeta } from '@/types';
 
@@ -57,6 +58,26 @@ export interface MonthlyDtr {
   year: number;
   month: number;
   days: MonthlyDtrDay[];
+}
+
+export interface AttendancePeriodReadiness {
+  year?: number;
+  month?: number;
+  status?: string | null;
+  ready?: boolean;
+  isReady?: boolean;
+  certified?: boolean;
+  dtrCertified?: boolean;
+  certifiedAt?: string | null;
+  totalEmployees?: number;
+  readyEmployees?: number;
+  incompleteDtr?: number;
+  missingDtr?: number;
+  conflicts?: number;
+  failed?: number;
+  queued?: number;
+  counts?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface AttendanceCorrection {
@@ -160,6 +181,21 @@ export async function fetchMonthlyDtr(year: number, month: number): Promise<Mont
     params: { year, month },
   });
   return res.data.data;
+}
+
+export async function fetchAttendancePeriodReadiness(
+  year: number,
+  month: number,
+): Promise<AttendancePeriodReadiness | null> {
+  try {
+    const res = await api.get<ApiResponse<AttendancePeriodReadiness>>('/attendance/periods/readiness', {
+      params: { year, month },
+    });
+    return res.data.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) return null;
+    throw error;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

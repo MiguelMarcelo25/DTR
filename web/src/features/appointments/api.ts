@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { api } from '@/lib/api';
 import type { ApiResponse, Paginated, PaginationMeta } from '@/types';
 
@@ -53,6 +54,17 @@ export interface AppointmentReport {
   total: number;
   byStatus: Record<string, number>;
   range: { from: string | null; to: string | null };
+}
+
+export interface CalendarIntegrationStatus {
+  configured: boolean;
+  authMode: string | null;
+  calendarId: string | null;
+  queuedCount: number;
+  failedCount: number;
+  conflictCount: number;
+  lastSyncAt?: string | null;
+  [key: string]: unknown;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -152,6 +164,16 @@ export async function getCalendar(params: CalendarParams): Promise<Appointment[]
 export async function getReports(params: { from?: string; to?: string }): Promise<AppointmentReport> {
   const res = await api.get<ApiResponse<AppointmentReport>>('/appointments/reports', { params });
   return res.data.data;
+}
+
+export async function fetchCalendarIntegrationStatus(): Promise<CalendarIntegrationStatus | null> {
+  try {
+    const res = await api.get<ApiResponse<CalendarIntegrationStatus>>('/calendar-integration/status');
+    return res.data.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function bookAppointment(payload: BookAppointmentPayload): Promise<Appointment> {

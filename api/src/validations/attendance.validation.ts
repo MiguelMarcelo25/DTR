@@ -51,6 +51,24 @@ export const summaryQuerySchema = z.object({
   to: z.coerce.date().optional(),
 });
 
+/** DTR period readiness for a single month. */
+export const dtrReadinessQuerySchema = z.object({
+  employeeId: z.string().uuid().optional(),
+  year: z.coerce.number().int().min(1970).max(2999),
+  month: z.coerce.number().int().min(1).max(12),
+});
+
+/** Self-submit a DTR period. */
+export const submitDtrPeriodSchema = z.object({
+  year: z.coerce.number().int().min(1970).max(2999),
+  month: z.coerce.number().int().min(1).max(12),
+});
+
+/** Privileged DTR lock body. */
+export const lockDtrPeriodSchema = z.object({
+  lockReason: z.string().max(500).optional(),
+});
+
 /** Create an attendance correction request. */
 export const createCorrectionSchema = z.object({
   date: z.coerce.date(),
@@ -95,6 +113,9 @@ export type AttendanceListQuery = z.infer<typeof attendanceListQuerySchema>;
 export type AttendanceHistoryQuery = z.infer<typeof attendanceHistoryQuerySchema>;
 export type MonthlyDtrQuery = z.infer<typeof monthlyDtrQuerySchema>;
 export type SummaryQuery = z.infer<typeof summaryQuerySchema>;
+export type DtrReadinessQuery = z.infer<typeof dtrReadinessQuerySchema>;
+export type SubmitDtrPeriodInput = z.infer<typeof submitDtrPeriodSchema>;
+export type LockDtrPeriodInput = z.infer<typeof lockDtrPeriodSchema>;
 export type CreateCorrectionInput = z.infer<typeof createCorrectionSchema>;
 export type CorrectionListQuery = z.infer<typeof correctionListQuerySchema>;
 export type RejectCorrectionInput = z.infer<typeof rejectCorrectionSchema>;

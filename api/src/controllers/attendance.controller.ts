@@ -66,6 +66,33 @@ export const summaryController = asyncHandler(async (req: Request, res: Response
   return ok(res, result, 'Attendance summary');
 });
 
+// ── DTR periods ──
+
+export const dtrReadinessController = asyncHandler(async (req: Request, res: Response) => {
+  const { employeeId, year, month } = req.query as unknown as {
+    employeeId?: string;
+    year: number;
+    month: number;
+  };
+  const result = await attendanceService.getDtrReadiness(req.user!, { employeeId, year, month });
+  return ok(res, result, 'DTR readiness');
+});
+
+export const submitDtrPeriodController = asyncHandler(async (req: Request, res: Response) => {
+  const period = await attendanceService.submitDtrPeriod(req, req.user!, req.body);
+  return created(res, period, 'DTR period submitted');
+});
+
+export const lockDtrPeriodController = asyncHandler(async (req: Request, res: Response) => {
+  const period = await attendanceService.lockDtrPeriod(req, req.user!, req.params.id, req.body);
+  return ok(res, period, 'DTR period locked');
+});
+
+export const reopenDtrPeriodController = asyncHandler(async (req: Request, res: Response) => {
+  const period = await attendanceService.reopenDtrPeriod(req, req.user!, req.params.id);
+  return ok(res, period, 'DTR period reopened');
+});
+
 // ── Corrections ──
 
 export const createCorrectionController = asyncHandler(async (req: Request, res: Response) => {

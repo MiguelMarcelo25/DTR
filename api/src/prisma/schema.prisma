@@ -204,6 +204,107 @@ enum TimelineEventType {
   OTHER
 }
 
+enum ApprovalSubjectType {
+  ATTENDANCE_CORRECTION
+  DTR_PERIOD
+  LEAVE_REQUEST
+  OVERTIME_REQUEST
+  APPOINTMENT
+  PROFILE_UPDATE_REQUEST
+}
+
+enum ApprovalInstanceStatus {
+  PENDING_SUPERVISOR
+  PENDING_HR
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalStepStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum ApprovalDecision {
+  APPROVE
+  REJECT
+}
+
+enum AttendanceEventType {
+  TIME_IN
+  TIME_OUT
+  BREAK_IN
+  BREAK_OUT
+  CORRECTION_APPLIED
+  SYSTEM_ADJUSTMENT
+}
+
+enum AttendanceEventSource {
+  WEB
+  CORRECTION
+  SYSTEM
+}
+
+enum DtrPeriodStatus {
+  OPEN
+  SUBMITTED
+  PENDING_SUPERVISOR
+  PENDING_HR
+  APPROVED
+  LOCKED
+  REOPENED
+  PAYROLL_READY
+  PAYROLL_HANDOFF
+}
+
+enum CalendarProvider {
+  GOOGLE
+}
+
+enum CalendarAuthMode {
+  SERVICE_ACCOUNT
+  OAUTH
+}
+
+enum CalendarIntegrationStatus {
+  NOT_CONFIGURED
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+enum CalendarSyncAction {
+  UPSERT
+  DELETE
+  FULL_SYNC
+  INCREMENTAL_SYNC
+}
+
+enum CalendarSyncStatus {
+  QUEUED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CONFLICT
+  SKIPPED
+}
+
+enum CalendarEventShadowStatus {
+  ACTIVE
+  CANCELLED
+  DELETED
+  CONFLICT
+}
+
+enum CalendarSyncDirection {
+  OUTBOUND
+  INBOUND
+  SYSTEM
+}
+
 // ─────────────────────────────────────────────────────────────
 // AUTH & USERS
 // ─────────────────────────────────────────────────────────────
@@ -222,6 +323,10 @@ model User {
   passwordResetTokens PasswordResetToken[]
   notifications       Notification[]
   auditLogs           AuditLog[]
+  approvalDecisions   ApprovalStep[]       @relation("ApprovalStepDecider")
+  orgScopes           UserOrgScope[]
+  calendarConnections CalendarIntegration[]
+  calendarSyncRequests CalendarSyncOutbox[]
 
   clientProfile    ClientProfile?
   clientTickets    SupportTicket[]        @relation("ClientTickets")
@@ -301,8 +406,10 @@ model Department {
   code        String? @unique
   description String?
 
-  employees Employee[]
-  positions Position[]
+  employees         Employee[]
+  positions         Position[]
+  approvalInstances ApprovalInstance[]
+  userOrgScopes     UserOrgScope[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -333,7 +440,9 @@ model Branch {
   name    String  @unique
   address String?
 
-  employees Employee[]
+  employees         Employee[]
+  approvalInstances ApprovalInstance[]
+  userOrgScopes     UserOrgScope[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -396,14 +505,18 @@ model Employee {
   updateRequests    EmployeeProfileUpdateRequest[]
   timeline          EmployeeActivityTimeline[]
 
-  attendances     Attendance[]
-  corrections     AttendanceCorrection[]
-  leaveRequests   LeaveRequest[]
-  leaveBalances   LeaveBalance[]
-  appointments    Appointment[]
-  payrolls         Payroll[]
-  assignedTickets  SupportTicket[]
-  overtimeRequests OvertimeRequest[]
+  attendances         Attendance[]
+  attendanceEvents    AttendanceEvent[]
+  dtrPeriods          DtrPeriod[]
+  corrections         AttendanceCorrection[]
+  leaveRequests       LeaveRequest[]
+  leaveBalances       LeaveBalance[]
+  appointments        Appointment[]
+  payrolls            Payroll[]
+  assignedTickets     SupportTicket[]
+  overtimeRequests    OvertimeRequest[]
+  approvalRequests    ApprovalInstance[]     @relation("ApprovalRequester")
+  approvalAssignments ApprovalStep[]         @relation("ApprovalStepAssignee")
 
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
@@ -686,6 +799,106 @@ model EmployeeActivityTimeline {
 }
 
 // ─────────────────────────────────────────────────────────────
+// SHARED APPROVALS
+// ─────────────────────────────────────────────────────────────
+
+model ApprovalWorkflow {
+  id          String              @id @default(uuid())
+  code        String
+  subjectType ApprovalSubjectType
+  isActive    Boolean             @default(true)
+  version     Int                 @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([code, version])
+  @@index([subjectType, isActive])
+  @@index([code, isActive])
+}
+
+model ApprovalInstance {
+  id                  String                 @id @default(uuid())
+  subjectType         ApprovalSubjectType
+  subjectId           String
+  requesterEmployeeId String
+  departmentId        String?
+  branchId            String?
+  currentStage        String
+  status              ApprovalInstanceStatus @default(PENDING_SUPERVISOR)
+  submittedAt         DateTime               @default(now())
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  metadata            Json?
+
+  requester  Employee       @relation("ApprovalRequester", fields: [requesterEmployeeId], references: [id])
+  department Department?    @relation(fields: [departmentId], references: [id])
+  branch     Branch?        @relation(fields: [branchId], references: [id])
+  steps      ApprovalStep[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([subjectType, subjectId])
+  @@index([status])
+  @@index([currentStage])
+  @@index([status, currentStage])
+  @@index([requesterEmployeeId])
+  @@index([departmentId])
+  @@index([branchId])
+}
+
+model ApprovalStep {
+  id                 String             @id @default(uuid())
+  instanceId         String
+  sequence           Int
+  stage              String
+  assignedRole       String
+  assignedEmployeeId String?
+  status             ApprovalStepStatus @default(PENDING)
+  decidedByUserId    String?
+  decidedAt          DateTime?
+  decision           ApprovalDecision?
+  note               String?
+  oldValues          Json?
+  newValues          Json?
+
+  instance         ApprovalInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  assignedEmployee Employee?        @relation("ApprovalStepAssignee", fields: [assignedEmployeeId], references: [id])
+  decidedBy        User?            @relation("ApprovalStepDecider", fields: [decidedByUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([instanceId, sequence])
+  @@index([instanceId, status])
+  @@index([stage, status])
+  @@index([assignedEmployeeId, status])
+  @@index([decidedByUserId])
+}
+
+model UserOrgScope {
+  id           String   @id @default(uuid())
+  userId       String
+  roleName     RoleName
+  departmentId String?
+  branchId     String?
+  isGlobal     Boolean  @default(false)
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id])
+  branch     Branch?     @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, roleName, departmentId, branchId])
+  @@index([userId, roleName])
+  @@index([departmentId, branchId])
+  @@index([isGlobal])
+}
+
+// ─────────────────────────────────────────────────────────────
 // ATTENDANCE & DTR
 // ─────────────────────────────────────────────────────────────
 
@@ -706,6 +919,7 @@ model Attendance {
 
   employee    Employee               @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   corrections AttendanceCorrection[]
+  events      AttendanceEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -733,12 +947,77 @@ model AttendanceCorrection {
 
   attendance Attendance? @relation(fields: [attendanceId], references: [id])
   employee   Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  events     AttendanceEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([employeeId])
   @@index([status])
+}
+
+model AttendanceEvent {
+  id             String                @id @default(uuid())
+  employeeId     String
+  attendanceId   String?
+  correctionId   String?
+  eventType      AttendanceEventType
+  source         AttendanceEventSource
+  occurredAt     DateTime
+  businessDate   DateTime              @db.Date
+  idempotencyKey String?               @unique
+  actorUserId    String?
+  ipAddress      String?
+  userAgent      String?
+  rawPayload     Json?
+
+  employee   Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attendance Attendance?           @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  correction AttendanceCorrection? @relation(fields: [correctionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([employeeId, businessDate])
+  @@index([attendanceId])
+  @@index([correctionId])
+  @@index([eventType])
+  @@index([source])
+}
+
+model DtrPeriod {
+  id                     String          @id @default(uuid())
+  employeeId             String
+  year                   Int
+  month                  Int
+  startDate              DateTime        @db.Date
+  endDate                DateTime        @db.Date
+  status                 DtrPeriodStatus @default(OPEN)
+  totals                 Json?
+  submittedAt            DateTime?
+  supervisorApprovedAt   DateTime?
+  hrApprovedAt           DateTime?
+  lockedAt               DateTime?
+  payrollHandoffAt       DateTime?
+  reopenedAt             DateTime?
+  submittedById          String?
+  supervisorApprovedById String?
+  hrApprovedById         String?
+  lockedById             String?
+  payrollHandoffById     String?
+  reopenedById           String?
+  lockReason             String?
+  version                Int             @default(1)
+
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  payrolls Payroll[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([employeeId, status])
+  @@index([status])
+  @@index([startDate, endDate])
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -832,15 +1111,24 @@ model Appointment {
   purpose           String
   scheduledDate     DateTime          @db.Date
   scheduledTime     String
+  scheduledEndTime  String?
+  durationMinutes   Int               @default(30)
   status            AppointmentStatus @default(PENDING)
   note              String?
   reviewedById      String?
   rescheduledFromId String?
+  googleEventId     String?
+  googleEventEtag   String?
+  googleEventStatus String?
+  calendarSyncedAt  DateTime?
 
   employee        Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   slot            AppointmentSlot? @relation(fields: [slotId], references: [id])
   rescheduledFrom Appointment?     @relation("AppointmentReschedule", fields: [rescheduledFromId], references: [id])
   reschedules     Appointment[]    @relation("AppointmentReschedule")
+  calendarShadow  CalendarEventShadow?
+  calendarOutbox  CalendarSyncOutbox[]
+  calendarLogs    CalendarSyncLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -848,11 +1136,120 @@ model Appointment {
   @@index([employeeId, status])
   @@index([slotId, status])
   @@index([scheduledDate])
+  @@index([googleEventId])
 }
 
 // ─────────────────────────────────────────────────────────────
 // PAYROLL
 // ─────────────────────────────────────────────────────────────
+
+model CalendarIntegration {
+  id                    String                    @id @default(uuid())
+  provider              CalendarProvider          @default(GOOGLE)
+  calendarId            String
+  authMode              CalendarAuthMode          @default(SERVICE_ACCOUNT)
+  status                CalendarIntegrationStatus @default(NOT_CONFIGURED)
+  syncToken             String?
+  channelId             String?
+  channelResourceId     String?
+  channelExpiresAt      DateTime?
+  lastFullSyncAt        DateTime?
+  lastIncrementalSyncAt DateTime?
+  lastSyncAt            DateTime?
+  lastError             String?
+  connectedById         String?
+
+  connectedBy User?             @relation(fields: [connectedById], references: [id], onDelete: SetNull)
+  logs        CalendarSyncLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, calendarId])
+  @@index([provider, status])
+  @@index([connectedById])
+}
+
+model CalendarSyncOutbox {
+  id                String             @id @default(uuid())
+  provider          CalendarProvider   @default(GOOGLE)
+  appointmentId     String
+  googleEventId     String?
+  action            CalendarSyncAction
+  status            CalendarSyncStatus @default(QUEUED)
+  payload           Json?
+  attempts          Int                @default(0)
+  nextAttemptAt     DateTime?
+  lockedAt          DateTime?
+  lockedBy          String?
+  lastAttemptAt     DateTime?
+  lastError         String?
+  requestedByUserId String?
+  processedAt       DateTime?
+
+  appointment     Appointment       @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  requestedByUser User?             @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  logs            CalendarSyncLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([provider, status, nextAttemptAt])
+  @@index([appointmentId, status])
+  @@index([googleEventId])
+  @@index([requestedByUserId])
+}
+
+model CalendarEventShadow {
+  id               String                    @id @default(uuid())
+  provider         CalendarProvider          @default(GOOGLE)
+  appointmentId    String                    @unique
+  calendarId       String
+  googleEventId    String                    @unique
+  etag             String?
+  status           CalendarEventShadowStatus @default(ACTIVE)
+  htmlLink         String?
+  recurringEventId String?
+  payload          Json?
+  lastSyncedAt     DateTime?
+  lastSeenAt       DateTime?
+  deletedAt        DateTime?
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([provider, status])
+  @@index([calendarId, googleEventId])
+  @@index([lastSeenAt])
+}
+
+model CalendarSyncLog {
+  id            String                 @id @default(uuid())
+  provider      CalendarProvider       @default(GOOGLE)
+  appointmentId String?
+  outboxId      String?
+  integrationId String?
+  direction     CalendarSyncDirection
+  action        CalendarSyncAction?
+  status        CalendarSyncStatus
+  message       String?
+  errorCode     String?
+  payload       Json?
+
+  appointment Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  outbox      CalendarSyncOutbox?  @relation(fields: [outboxId], references: [id], onDelete: SetNull)
+  integration CalendarIntegration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([provider, createdAt])
+  @@index([appointmentId])
+  @@index([outboxId])
+  @@index([integrationId])
+  @@index([status])
+}
 
 model PayrollPeriod {
   id          String        @id @default(uuid())
@@ -886,11 +1283,17 @@ model Payroll {
   grossPay         Decimal       @default(0) @db.Decimal(12, 2)
   totalDeductions  Decimal       @default(0) @db.Decimal(12, 2)
   netPay           Decimal       @default(0) @db.Decimal(12, 2)
+  inputSnapshot    Json?
+  attendanceSnapshot Json?
+  payrollConfigSnapshot Json?
+  calculationVersion String?
+  dtrPeriodId      String?
 
-  period   PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
-  employee Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  items    PayrollItem[]
-  payslip  Payslip?
+  period    PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employee  Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  dtrPeriod DtrPeriod?    @relation(fields: [dtrPeriodId], references: [id])
+  items     PayrollItem[]
+  payslip   Payslip?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -898,6 +1301,7 @@ model Payroll {
   @@unique([periodId, employeeId])
   @@index([periodId])
   @@index([employeeId])
+  @@index([dtrPeriodId])
   @@index([status])
 }
 

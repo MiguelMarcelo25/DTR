@@ -12,6 +12,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getCalendar, employeeName, type Appointment } from '@/features/appointments/api';
+import { CalendarIntegrationHealthPanel } from '@/features/appointments/components/CalendarIntegrationHealthPanel';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -98,6 +99,8 @@ export default function AppointmentCalendarPage() {
           </div>
         }
       />
+
+      <CalendarIntegrationHealthPanel />
 
       <Card className="animate-fade-up rounded-xl border bg-card shadow-soft">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

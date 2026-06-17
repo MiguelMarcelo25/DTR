@@ -1,14 +1,26 @@
 import type { Request } from 'express';
-import { Prisma, AttendanceStatus, RequestStatus, LeaveStatus, TimelineEventType, NotificationType } from '@prisma/client';
+import {
+  Prisma,
+  AttendanceStatus,
+  RequestStatus,
+  LeaveStatus,
+  TimelineEventType,
+  NotificationType,
+  AttendanceEventType,
+  AttendanceEventSource,
+  DtrPeriodStatus,
+  ApprovalSubjectType,
+} from '@prisma/client';
 import prisma from '../config/prisma';
 import { MODULES, PRIVILEGED_ROLES } from '../config/constants';
 import type { AuthUser } from '../types';
 import { badRequest, conflict, forbidden, notFound } from '../utils/errors';
 import { ensureSelfOrPrivileged, isPrivileged } from '../utils/access';
 import { buildMeta, buildOrderBy, buildPagination } from '../utils/pagination';
-import { audit } from '../utils/audit';
+import { audit, auditContext } from '../utils/audit';
 import { notify, userIdForEmployee } from '../utils/notify';
 import { atTime, diffMinutes, startOfDay, startOfMonth, endOfMonth } from '../utils/dateTime';
+import { createApprovalInstance, type ApprovalDb } from './approval.service';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -172,6 +184,110 @@ function scheduleConfig(schedule: {
   };
 }
 
+function idempotencyKeyFrom(req: Request): string | null {
+  const getter = typeof req.get === 'function' ? req.get.bind(req) : null;
+  const header = getter?.('Idempotency-Key') ?? req.headers['idempotency-key'];
+  const value = Array.isArray(header) ? header[0] : header;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+async function attendanceForIdempotencyKey(
+  tx: Prisma.TransactionClient,
+  key: string | null,
+  employeeId: string,
+) {
+  if (!key) return null;
+  const event = await tx.attendanceEvent.findUnique({ where: { idempotencyKey: key } });
+  if (!event) return null;
+  if (event.employeeId !== employeeId) {
+    throw conflict('Idempotency key was already used');
+  }
+  if (event.attendanceId) {
+    const attendance = await tx.attendance.findUnique({ where: { id: event.attendanceId } });
+    if (attendance) return attendance;
+  }
+  return tx.attendance.findUnique({
+    where: { employeeId_date: { employeeId, date: startOfDay(event.businessDate) } },
+  });
+}
+
+function rawPayloadFrom(req: Request): Prisma.InputJsonValue | undefined {
+  if (!req.body || typeof req.body !== 'object') return undefined;
+  if (!Object.keys(req.body as Record<string, unknown>).length) return undefined;
+  return req.body as Prisma.InputJsonValue;
+}
+
+async function createAttendanceEvent(
+  tx: Prisma.TransactionClient,
+  req: Request,
+  user: AuthUser,
+  data: {
+    employeeId: string;
+    attendanceId?: string | null;
+    correctionId?: string | null;
+    eventType: AttendanceEventType;
+    source: AttendanceEventSource;
+    occurredAt: Date;
+    businessDate: Date;
+    idempotencyKey?: string | null;
+  },
+) {
+  const ctx = auditContext(req);
+  return tx.attendanceEvent.create({
+    data: {
+      employeeId: data.employeeId,
+      attendanceId: data.attendanceId ?? null,
+      correctionId: data.correctionId ?? null,
+      eventType: data.eventType,
+      source: data.source,
+      occurredAt: data.occurredAt,
+      businessDate: startOfDay(data.businessDate),
+      idempotencyKey: data.idempotencyKey ?? null,
+      actorUserId: user.id,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      rawPayload: rawPayloadFrom(req),
+    },
+  });
+}
+
+function statusFromApproval(status: string): DtrPeriodStatus {
+  if (status === 'PENDING_SUPERVISOR') return DtrPeriodStatus.PENDING_SUPERVISOR;
+  if (status === 'PENDING_HR') return DtrPeriodStatus.PENDING_HR;
+  if (status === 'APPROVED') return DtrPeriodStatus.APPROVED;
+  return DtrPeriodStatus.SUBMITTED;
+}
+
+const MUTABLE_DTR_PERIOD_STATUSES = new Set<DtrPeriodStatus>([
+  DtrPeriodStatus.OPEN,
+  DtrPeriodStatus.REOPENED,
+]);
+
+async function assertDtrPeriodAllowsPunch(
+  tx: Prisma.TransactionClient,
+  employeeId: string,
+  businessDate: Date,
+) {
+  const period = await tx.dtrPeriod.findUnique({
+    where: {
+      employeeId_year_month: {
+        employeeId,
+        year: businessDate.getUTCFullYear(),
+        month: businessDate.getUTCMonth() + 1,
+      },
+    },
+    select: { id: true, status: true, year: true, month: true },
+  });
+
+  if (period && !MUTABLE_DTR_PERIOD_STATUSES.has(period.status)) {
+    throw badRequest(
+      'This DTR period is locked for attendance changes',
+      'DTR_PERIOD_LOCKED',
+      { periodId: period.id, year: period.year, month: period.month, status: period.status },
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Punch operations (self)
 // ─────────────────────────────────────────────────────────────
@@ -185,34 +301,63 @@ export async function timeIn(req: Request, user: AuthUser) {
 
   const now = new Date();
   const date = startOfDay(now);
+  const idempotencyKey = idempotencyKeyFrom(req);
 
-  const existing = await prisma.attendance.findUnique({
-    where: { employeeId_date: { employeeId, date } },
-  });
-  if (existing?.timeIn) {
-    throw conflict('You have already timed in today');
-  }
+  const { record, metrics } = await prisma.$transaction(async (tx) => {
+    const replay = await attendanceForIdempotencyKey(tx, idempotencyKey, employeeId);
+    if (replay) {
+      return {
+        record: replay,
+        metrics: {
+          lateMinutes: replay.lateMinutes,
+          undertimeMinutes: replay.undertimeMinutes,
+          workedMinutes: replay.workedMinutes,
+          status: replay.status,
+        },
+      };
+    }
+    await assertDtrPeriodAllowsPunch(tx, employeeId, date);
 
-  const metrics = computeMetrics(date, schedule, now, existing?.timeOut ?? null, existing?.breakIn ?? null, existing?.breakOut ?? null);
+    const existing = await tx.attendance.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (existing?.timeIn) {
+      throw conflict('You have already timed in today');
+    }
 
-  const record = await prisma.attendance.upsert({
-    where: { employeeId_date: { employeeId, date } },
-    create: {
+    const nextMetrics = computeMetrics(date, schedule, now, existing?.timeOut ?? null, existing?.breakIn ?? null, existing?.breakOut ?? null);
+
+    const nextRecord = await tx.attendance.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      create: {
+        employeeId,
+        date,
+        timeIn: now,
+        lateMinutes: nextMetrics.lateMinutes,
+        undertimeMinutes: nextMetrics.undertimeMinutes,
+        workedMinutes: nextMetrics.workedMinutes,
+        status: nextMetrics.status,
+      },
+      update: {
+        timeIn: now,
+        lateMinutes: nextMetrics.lateMinutes,
+        undertimeMinutes: nextMetrics.undertimeMinutes,
+        workedMinutes: nextMetrics.workedMinutes,
+        status: nextMetrics.status,
+      },
+    });
+
+    await createAttendanceEvent(tx, req, user, {
       employeeId,
-      date,
-      timeIn: now,
-      lateMinutes: metrics.lateMinutes,
-      undertimeMinutes: metrics.undertimeMinutes,
-      workedMinutes: metrics.workedMinutes,
-      status: metrics.status,
-    },
-    update: {
-      timeIn: now,
-      lateMinutes: metrics.lateMinutes,
-      undertimeMinutes: metrics.undertimeMinutes,
-      workedMinutes: metrics.workedMinutes,
-      status: metrics.status,
-    },
+      attendanceId: nextRecord.id,
+      eventType: AttendanceEventType.TIME_IN,
+      source: AttendanceEventSource.WEB,
+      occurredAt: now,
+      businessDate: date,
+      idempotencyKey,
+    });
+
+    return { record: nextRecord, metrics: nextMetrics };
   });
 
   await audit(req, {
@@ -235,41 +380,70 @@ export async function timeOut(req: Request, user: AuthUser) {
 
   const now = new Date();
   const date = startOfDay(now);
-
-  const existing = await prisma.attendance.findUnique({
-    where: { employeeId_date: { employeeId, date } },
-  });
-  if (!existing || !existing.timeIn) {
-    throw badRequest('You must time in before timing out', 'NOT_TIMED_IN');
-  }
-  if (existing.timeOut) {
-    throw conflict('You have already timed out today');
-  }
-
-  const metrics = computeMetrics(
-    date,
-    schedule,
-    existing.timeIn,
-    now,
-    existing.breakIn,
-    existing.breakOut,
-  );
+  const idempotencyKey = idempotencyKeyFrom(req);
 
   const workSummary =
     typeof req.body?.workSummary === 'string' && req.body.workSummary.trim()
       ? req.body.workSummary.trim()
       : undefined;
 
-  const record = await prisma.attendance.update({
-    where: { id: existing.id },
-    data: {
-      timeOut: now,
-      undertimeMinutes: metrics.undertimeMinutes,
-      workedMinutes: metrics.workedMinutes,
-      lateMinutes: metrics.lateMinutes,
-      status: metrics.status,
-      ...(workSummary ? { workSummary } : {}),
-    },
+  const { record, metrics } = await prisma.$transaction(async (tx) => {
+    const replay = await attendanceForIdempotencyKey(tx, idempotencyKey, employeeId);
+    if (replay) {
+      return {
+        record: replay,
+        metrics: {
+          lateMinutes: replay.lateMinutes,
+          undertimeMinutes: replay.undertimeMinutes,
+          workedMinutes: replay.workedMinutes,
+          status: replay.status,
+        },
+      };
+    }
+    await assertDtrPeriodAllowsPunch(tx, employeeId, date);
+
+    const existing = await tx.attendance.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (!existing || !existing.timeIn) {
+      throw badRequest('You must time in before timing out', 'NOT_TIMED_IN');
+    }
+    if (existing.timeOut) {
+      throw conflict('You have already timed out today');
+    }
+
+    const nextMetrics = computeMetrics(
+      date,
+      schedule,
+      existing.timeIn,
+      now,
+      existing.breakIn,
+      existing.breakOut,
+    );
+
+    const nextRecord = await tx.attendance.update({
+      where: { id: existing.id },
+      data: {
+        timeOut: now,
+        undertimeMinutes: nextMetrics.undertimeMinutes,
+        workedMinutes: nextMetrics.workedMinutes,
+        lateMinutes: nextMetrics.lateMinutes,
+        status: nextMetrics.status,
+        ...(workSummary ? { workSummary } : {}),
+      },
+    });
+
+    await createAttendanceEvent(tx, req, user, {
+      employeeId,
+      attendanceId: nextRecord.id,
+      eventType: AttendanceEventType.TIME_OUT,
+      source: AttendanceEventSource.WEB,
+      occurredAt: now,
+      businessDate: date,
+      idempotencyKey,
+    });
+
+    return { record: nextRecord, metrics: nextMetrics };
   });
 
   await audit(req, {
@@ -283,30 +457,49 @@ export async function timeOut(req: Request, user: AuthUser) {
   return record;
 }
 
-export async function breakIn(_req: Request, user: AuthUser) {
+export async function breakIn(req: Request, user: AuthUser) {
   const employeeId = requireSelfEmployeeId(user);
   ensureSelfOrPrivileged(user, employeeId);
 
   const now = new Date();
   const date = startOfDay(now);
+  const idempotencyKey = idempotencyKeyFrom(req);
 
-  const existing = await prisma.attendance.findUnique({
-    where: { employeeId_date: { employeeId, date } },
-  });
-  if (!existing || !existing.timeIn) {
-    throw badRequest('You must time in before starting a break', 'NOT_TIMED_IN');
-  }
-  if (existing.breakIn) {
-    throw conflict('You have already started your break today');
-  }
+  return prisma.$transaction(async (tx) => {
+    const replay = await attendanceForIdempotencyKey(tx, idempotencyKey, employeeId);
+    if (replay) return replay;
+    await assertDtrPeriodAllowsPunch(tx, employeeId, date);
 
-  return prisma.attendance.update({
-    where: { id: existing.id },
-    data: { breakIn: now },
+    const existing = await tx.attendance.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (!existing || !existing.timeIn) {
+      throw badRequest('You must time in before starting a break', 'NOT_TIMED_IN');
+    }
+    if (existing.breakIn) {
+      throw conflict('You have already started your break today');
+    }
+
+    const record = await tx.attendance.update({
+      where: { id: existing.id },
+      data: { breakIn: now },
+    });
+
+    await createAttendanceEvent(tx, req, user, {
+      employeeId,
+      attendanceId: record.id,
+      eventType: AttendanceEventType.BREAK_IN,
+      source: AttendanceEventSource.WEB,
+      occurredAt: now,
+      businessDate: date,
+      idempotencyKey,
+    });
+
+    return record;
   });
 }
 
-export async function breakOut(_req: Request, user: AuthUser) {
+export async function breakOut(req: Request, user: AuthUser) {
   const employeeId = requireSelfEmployeeId(user);
   ensureSelfOrPrivileged(user, employeeId);
 
@@ -315,33 +508,52 @@ export async function breakOut(_req: Request, user: AuthUser) {
 
   const now = new Date();
   const date = startOfDay(now);
+  const idempotencyKey = idempotencyKeyFrom(req);
 
-  const existing = await prisma.attendance.findUnique({
-    where: { employeeId_date: { employeeId, date } },
-  });
-  if (!existing || !existing.breakIn) {
-    throw badRequest('You must start a break before ending it', 'NO_BREAK_STARTED');
-  }
-  if (existing.breakOut) {
-    throw conflict('You have already ended your break today');
-  }
+  return prisma.$transaction(async (tx) => {
+    const replay = await attendanceForIdempotencyKey(tx, idempotencyKey, employeeId);
+    if (replay) return replay;
+    await assertDtrPeriodAllowsPunch(tx, employeeId, date);
 
-  // Recompute worked minutes now that the actual break length is known.
-  const metrics = computeMetrics(
-    date,
-    schedule,
-    existing.timeIn,
-    existing.timeOut,
-    existing.breakIn,
-    now,
-  );
+    const existing = await tx.attendance.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (!existing || !existing.breakIn) {
+      throw badRequest('You must start a break before ending it', 'NO_BREAK_STARTED');
+    }
+    if (existing.breakOut) {
+      throw conflict('You have already ended your break today');
+    }
 
-  return prisma.attendance.update({
-    where: { id: existing.id },
-    data: {
-      breakOut: now,
-      workedMinutes: metrics.workedMinutes,
-    },
+    // Recompute worked minutes now that the actual break length is known.
+    const metrics = computeMetrics(
+      date,
+      schedule,
+      existing.timeIn,
+      existing.timeOut,
+      existing.breakIn,
+      now,
+    );
+
+    const record = await tx.attendance.update({
+      where: { id: existing.id },
+      data: {
+        breakOut: now,
+        workedMinutes: metrics.workedMinutes,
+      },
+    });
+
+    await createAttendanceEvent(tx, req, user, {
+      employeeId,
+      attendanceId: record.id,
+      eventType: AttendanceEventType.BREAK_OUT,
+      source: AttendanceEventSource.WEB,
+      occurredAt: now,
+      businessDate: date,
+      idempotencyKey,
+    });
+
+    return record;
   });
 }
 
@@ -549,6 +761,230 @@ export async function summary(
 }
 
 // ─────────────────────────────────────────────────────────────
+// DTR period readiness and lifecycle
+// ─────────────────────────────────────────────────────────────
+
+interface DtrMonthInput {
+  employeeId?: string;
+  year: number;
+  month: number;
+}
+
+function dtrRange(year: number, month: number) {
+  const month0 = month - 1;
+  return {
+    startDate: startOfMonth(year, month0),
+    endDate: endOfMonth(year, month0),
+  };
+}
+
+export async function getDtrReadiness(user: AuthUser, opts: DtrMonthInput) {
+  const employeeId = resolveTargetEmployeeId(user, opts.employeeId);
+  ensureSelfOrPrivileged(user, employeeId);
+
+  const { startDate, endDate } = dtrRange(opts.year, opts.month);
+  const dateWhere = { gte: startOfDay(startDate), lte: startOfDay(endDate) };
+
+  const [employee, period, missingTimeOuts, pendingCorrections, pendingOvertime, pendingLeave] =
+    await Promise.all([
+      prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: { id: true, scheduleId: true },
+      }),
+      prisma.dtrPeriod.findUnique({
+        where: { employeeId_year_month: { employeeId, year: opts.year, month: opts.month } },
+      }),
+      prisma.attendance.count({
+        where: {
+          employeeId,
+          date: dateWhere,
+          timeIn: { not: null },
+          timeOut: null,
+        },
+      }),
+      prisma.attendanceCorrection.count({
+        where: {
+          employeeId,
+          status: RequestStatus.PENDING,
+          date: dateWhere,
+        },
+      }),
+      prisma.overtimeRequest.count({
+        where: {
+          employeeId,
+          status: RequestStatus.PENDING,
+          date: dateWhere,
+        },
+      }),
+      prisma.leaveRequest.count({
+        where: {
+          employeeId,
+          status: LeaveStatus.PENDING,
+          startDate: { lte: startOfDay(endDate) },
+          endDate: { gte: startOfDay(startDate) },
+        },
+      }),
+    ]);
+
+  if (!employee) throw notFound('Employee not found');
+
+  const blockingIssues = {
+    pendingCorrections,
+    missingTimeOuts,
+    pendingOvertime,
+    pendingLeave,
+    missingSchedule: !employee.scheduleId,
+  };
+  const ready = Object.values(blockingIssues).every((value) => value === 0 || value === false);
+
+  return {
+    employeeId,
+    year: opts.year,
+    month: opts.month,
+    status: period?.status ?? DtrPeriodStatus.OPEN,
+    ready,
+    blockingIssues,
+  };
+}
+
+export async function submitDtrPeriod(req: Request, user: AuthUser, input: { year: number; month: number }) {
+  const employeeId = requireSelfEmployeeId(user);
+  const readiness = await getDtrReadiness(user, input);
+  if (!readiness.ready) {
+    throw badRequest('Resolve DTR blockers before submitting this period', 'DTR_NOT_READY', {
+      blockingIssues: readiness.blockingIssues,
+    });
+  }
+
+  const { startDate, endDate } = dtrRange(input.year, input.month);
+  const submittedAt = new Date();
+
+  const period = await prisma.$transaction(async (tx) => {
+    const saved = await tx.dtrPeriod.upsert({
+      where: { employeeId_year_month: { employeeId, year: input.year, month: input.month } },
+      create: {
+        employeeId,
+        year: input.year,
+        month: input.month,
+        startDate,
+        endDate: startOfDay(endDate),
+        status: DtrPeriodStatus.SUBMITTED,
+        submittedAt,
+        submittedById: user.id,
+      },
+      update: {
+        startDate,
+        endDate: startOfDay(endDate),
+        status: DtrPeriodStatus.SUBMITTED,
+        submittedAt,
+        submittedById: user.id,
+        version: { increment: 1 },
+      },
+    });
+
+    const existingApproval = await tx.approvalInstance.findUnique({
+      where: {
+        subjectType_subjectId: {
+          subjectType: ApprovalSubjectType.DTR_PERIOD,
+          subjectId: saved.id,
+        },
+      },
+    });
+    const approval =
+      existingApproval ??
+      (await createApprovalInstance(
+        tx as unknown as ApprovalDb,
+        ApprovalSubjectType.DTR_PERIOD,
+        saved.id,
+        employeeId,
+        { year: input.year, month: input.month },
+      ));
+
+    return tx.dtrPeriod.update({
+      where: { id: saved.id },
+      data: { status: statusFromApproval(approval.status) },
+    });
+  });
+
+  await audit(req, {
+    action: 'DTR_PERIOD_SUBMITTED',
+    module: MODULES.ATTENDANCE,
+    description: `Submitted DTR for ${input.year}-${String(input.month).padStart(2, '0')}`,
+    employeeId,
+    newValues: { periodId: period.id, status: period.status },
+  });
+
+  return period;
+}
+
+export async function lockDtrPeriod(
+  req: Request,
+  user: AuthUser,
+  id: string,
+  input: { lockReason?: string },
+) {
+  if (!isPrivileged(user)) throw forbidden('Only privileged users can lock DTR periods');
+  const existing = await prisma.dtrPeriod.findUnique({ where: { id } });
+  if (!existing) throw notFound('DTR period not found');
+  if (existing.status !== DtrPeriodStatus.APPROVED) {
+    throw badRequest('Only HR-approved DTR periods can be locked', 'DTR_NOT_APPROVED', {
+      status: existing.status,
+    });
+  }
+
+  const lockedAt = new Date();
+  const period = await prisma.dtrPeriod.update({
+    where: { id },
+    data: {
+      status: DtrPeriodStatus.LOCKED,
+      lockedAt,
+      lockedById: user.id,
+      lockReason: input.lockReason?.trim() || null,
+      version: { increment: 1 },
+    },
+  });
+
+  await audit(req, {
+    action: 'DTR_PERIOD_LOCKED',
+    module: MODULES.ATTENDANCE,
+    description: `Locked DTR period ${period.year}-${String(period.month).padStart(2, '0')}`,
+    employeeId: period.employeeId,
+    oldValues: { status: existing.status },
+    newValues: { status: period.status, lockReason: period.lockReason },
+  });
+
+  return period;
+}
+
+export async function reopenDtrPeriod(req: Request, user: AuthUser, id: string) {
+  if (!isPrivileged(user)) throw forbidden('Only privileged users can reopen DTR periods');
+  const existing = await prisma.dtrPeriod.findUnique({ where: { id } });
+  if (!existing) throw notFound('DTR period not found');
+
+  const reopenedAt = new Date();
+  const period = await prisma.dtrPeriod.update({
+    where: { id },
+    data: {
+      status: DtrPeriodStatus.REOPENED,
+      reopenedAt,
+      reopenedById: user.id,
+      version: { increment: 1 },
+    },
+  });
+
+  await audit(req, {
+    action: 'DTR_PERIOD_REOPENED',
+    module: MODULES.ATTENDANCE,
+    description: `Reopened DTR period ${period.year}-${String(period.month).padStart(2, '0')}`,
+    employeeId: period.employeeId,
+    oldValues: { status: existing.status },
+    newValues: { status: period.status },
+  });
+
+  return period;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Corrections
 // ─────────────────────────────────────────────────────────────
 
@@ -571,18 +1007,37 @@ export async function createCorrection(req: Request, user: AuthUser, input: Crea
     where: { employeeId_date: { employeeId, date } },
   });
 
-  const correction = await prisma.attendanceCorrection.create({
-    data: {
+  const correction = await prisma.$transaction(async (tx) => {
+    const created = await tx.attendanceCorrection.create({
+      data: {
+        employeeId,
+        attendanceId: existing?.id ?? null,
+        date,
+        requestedTimeIn: input.requestedTimeIn ?? null,
+        requestedTimeOut: input.requestedTimeOut ?? null,
+        requestedBreakIn: input.requestedBreakIn ?? null,
+        requestedBreakOut: input.requestedBreakOut ?? null,
+        reason: input.reason,
+        status: RequestStatus.PENDING,
+      },
+    });
+
+    await createApprovalInstance(
+      tx as unknown as ApprovalDb,
+      ApprovalSubjectType.ATTENDANCE_CORRECTION,
+      created.id,
       employeeId,
-      attendanceId: existing?.id ?? null,
-      date,
-      requestedTimeIn: input.requestedTimeIn ?? null,
-      requestedTimeOut: input.requestedTimeOut ?? null,
-      requestedBreakIn: input.requestedBreakIn ?? null,
-      requestedBreakOut: input.requestedBreakOut ?? null,
-      reason: input.reason,
-      status: RequestStatus.PENDING,
-    },
+      {
+        date: date.toISOString().slice(0, 10),
+        requestedTimeIn: input.requestedTimeIn?.toISOString() ?? null,
+        requestedTimeOut: input.requestedTimeOut?.toISOString() ?? null,
+        requestedBreakIn: input.requestedBreakIn?.toISOString() ?? null,
+        requestedBreakOut: input.requestedBreakOut?.toISOString() ?? null,
+        reason: input.reason,
+      },
+    );
+
+    return created;
   });
 
   await audit(req, {
@@ -660,6 +1115,21 @@ async function getCorrectionOrThrow(id: string) {
   return correction;
 }
 
+async function requireCompletedCorrectionApproval(id: string, expectedStatus: 'APPROVED' | 'REJECTED') {
+  const approval = await prisma.approvalInstance.findUnique({
+    where: {
+      subjectType_subjectId: {
+        subjectType: ApprovalSubjectType.ATTENDANCE_CORRECTION,
+        subjectId: id,
+      },
+    },
+    select: { status: true },
+  });
+  if (approval?.status !== expectedStatus) {
+    throw forbidden('Attendance corrections must be decided through the shared approval workflow');
+  }
+}
+
 /** Apply the requested times: create or recompute the Attendance row. */
 export async function approveCorrection(
   req: Request,
@@ -667,6 +1137,7 @@ export async function approveCorrection(
   id: string,
   reviewNote?: string,
 ) {
+  await requireCompletedCorrectionApproval(id, 'APPROVED');
   const correction = await getCorrectionOrThrow(id);
   if (correction.status !== RequestStatus.PENDING) {
     throw conflict('This correction has already been reviewed');
@@ -773,6 +1244,7 @@ export async function rejectCorrection(
   id: string,
   reviewNote?: string,
 ) {
+  await requireCompletedCorrectionApproval(id, 'REJECTED');
   const correction = await getCorrectionOrThrow(id);
   if (correction.status !== RequestStatus.PENDING) {
     throw conflict('This correction has already been reviewed');

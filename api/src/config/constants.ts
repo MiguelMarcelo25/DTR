@@ -34,6 +34,7 @@ export const MODULES = {
   SUPPORT: 'SUPPORT',
   OVERTIME: 'OVERTIME',
   HOLIDAY: 'HOLIDAY',
+  APPROVAL: 'APPROVAL',
 } as const;
 
 /** Upload constraints. */
