@@ -1,7 +1,15 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
 import type { ApiErrorBody } from '@/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+function apiBaseUrl(rawUrl: string): string {
+  const url = rawUrl.trim().replace(/\/+$/, '');
+  if (!url) return '/api';
+  return url.endsWith('/api') ? url : `${url}/api`;
+}
+
+const API_BASE_URL = apiBaseUrl(RAW_API_URL);
 
 /**
  * Access token lives in memory only (never localStorage — avoids XSS token
@@ -16,7 +24,7 @@ export const setAccessToken = (t: string | null) => {
 export const getAccessToken = () => accessToken;
 
 export const api = axios.create({
-  baseURL: `${API_URL}/api`,
+  baseURL: API_BASE_URL,
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -35,7 +43,7 @@ let refreshPromise: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   try {
     const res = await axios.post<{ data: { accessToken: string } }>(
-      `${API_URL}/api/auth/refresh-token`,
+      `${API_BASE_URL}/auth/refresh-token`,
       {},
       { withCredentials: true },
     );
