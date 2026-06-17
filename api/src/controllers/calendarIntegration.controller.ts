@@ -9,44 +9,34 @@ import type {
 
 export const getCalendarIntegrationStatusController = asyncHandler(
   async (_req: Request, res: Response) => {
-    const status = calendarIntegrationService.getCalendarIntegrationStatus();
+    const status = await calendarIntegrationService.getCalendarIntegrationStatus();
     return ok(res, status, 'Calendar integration status');
   },
 );
 
 export const syncNowController = asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as SyncNowInput;
-  const result = body.appointmentId
-    ? calendarIntegrationService.enqueueAppointmentSync({
-        appointmentId: body.appointmentId,
-        requestedByUserId: req.user!.id,
-      })
-    : {
-        accepted: true,
-        queuedCount: 0,
-        message: 'Calendar sync queue is not database-backed yet',
-      };
+  if (body.appointmentId) {
+    await calendarIntegrationService.queueAppointmentSync({
+      appointmentId: body.appointmentId,
+      requestedByUserId: req.user!.id,
+    });
+  }
+  const result = await calendarIntegrationService.processCalendarSyncQueue({
+    limit: body.appointmentId ? 1 : 25,
+  });
 
   return ok(res, result, 'Calendar sync queued', 202);
 });
 
 export const retryFailedController = asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as RetryFailedInput;
-  return ok(
-    res,
-    {
-      accepted: true,
-      queuedCount: 0,
-      limit: body.limit ?? 25,
-      message: 'Calendar retry queue is not database-backed yet',
-    },
-    'Calendar retry queued',
-    202,
-  );
+  const result = await calendarIntegrationService.retryFailedCalendarSyncs(body.limit ?? 25);
+  return ok(res, result, 'Calendar retry queued', 202);
 });
 
 export const listConflictsController = asyncHandler(async (_req: Request, res: Response) => {
-  return ok(res, [], 'Calendar conflicts');
+  return ok(res, await calendarIntegrationService.listCalendarConflicts(), 'Calendar conflicts');
 });
 
 export const googleCalendarWebhookController = asyncHandler(

@@ -8,6 +8,7 @@ import { buildMeta, buildOrderBy, buildPagination } from '../utils/pagination';
 import { writeAudit, type AuditEntry } from '../utils/audit';
 import { notify, userIdForEmployee } from '../utils/notify';
 import type { AuthUser, PaginationMeta } from '../types';
+import { queueAndMaybeProcessAppointmentSync } from './calendarIntegration.service';
 
 interface Ctx {
   ipAddress?: string | null;
@@ -121,6 +122,18 @@ async function getAppointmentOrThrow(id: string) {
   });
   if (!appointment) throw notFound('Appointment not found');
   return appointment;
+}
+
+async function queueCalendarSync(
+  appointmentId: string,
+  action: 'UPSERT' | 'DELETE',
+  requestedByUserId?: string,
+) {
+  try {
+    await queueAndMaybeProcessAppointmentSync({ appointmentId, action, requestedByUserId });
+  } catch {
+    // Calendar sync is best-effort; HRMS remains the source of truth.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -414,6 +427,7 @@ export async function bookAppointment(
     `${appointment.purpose} on ${appointment.scheduledDate.toISOString().slice(0, 10)} at ${appointment.scheduledTime}`,
     `/appointments/${appointment.id}`,
   );
+  await queueCalendarSync(appointment.id, 'UPSERT', user.id);
 
   return appointment;
 }
@@ -482,6 +496,8 @@ export async function rescheduleAppointment(
     `Your appointment was rescheduled to ${created.scheduledDate.toISOString().slice(0, 10)} at ${created.scheduledTime}`,
     `/appointments/${created.id}`,
   );
+  await queueCalendarSync(existing.id, 'DELETE', user.id);
+  await queueCalendarSync(created.id, 'UPSERT', user.id);
 
   return created;
 }
@@ -516,6 +532,7 @@ export async function cancelAppointment(id: string, note: string | undefined, us
     `Your appointment "${appointment.purpose}" was cancelled`,
     `/appointments/${appointment.id}`,
   );
+  await queueCalendarSync(appointment.id, 'DELETE', user.id);
 
   return appointment;
 }
@@ -554,6 +571,7 @@ export async function approveAppointment(id: string, note: string | undefined, u
     `Your appointment "${appointment.purpose}" on ${appointment.scheduledDate.toISOString().slice(0, 10)} at ${appointment.scheduledTime} was approved`,
     `/appointments/${appointment.id}`,
   );
+  await queueCalendarSync(appointment.id, 'UPSERT', user.id);
 
   return appointment;
 }
@@ -587,6 +605,7 @@ export async function rejectAppointment(id: string, note: string | undefined, us
     `Your appointment "${appointment.purpose}" was rejected${note ? `: ${note}` : ''}`,
     `/appointments/${appointment.id}`,
   );
+  await queueCalendarSync(appointment.id, 'DELETE', user.id);
 
   return appointment;
 }
@@ -623,6 +642,7 @@ export async function completeAppointment(id: string, note: string | undefined, 
     `Your appointment "${appointment.purpose}" is marked as completed`,
     `/appointments/${appointment.id}`,
   );
+  await queueCalendarSync(appointment.id, 'UPSERT', user.id);
 
   return appointment;
 }

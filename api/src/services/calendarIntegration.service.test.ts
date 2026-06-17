@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildGoogleEvent,
   classifyCalendarError,
@@ -6,6 +6,11 @@ import {
   handleGoogleCalendarWebhook,
   shouldRetryCalendarError,
 } from './calendarIntegration.service';
+
+vi.mock('../config/prisma', () => ({
+  default: {},
+  prisma: {},
+}));
 
 const appointmentId = '123E4567-E89B-12D3-A456-426614174000';
 const slotId = '223e4567-e89b-12d3-a456-426614174111';
